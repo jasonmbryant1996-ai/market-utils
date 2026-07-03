@@ -117,11 +117,11 @@ def main():
         print(f"ERROR: .pkl file not found: {args.pkl}")
         sys.exit(1)
 
-    print("\n=== Step 1: Copy model files to model/ (temporarily) ===")
-    shutil.copy(args.pth, "model/best_regime_transformer.pth")
-    shutil.copy(args.pkl, "model/scaler_X.pkl")
-    print(f"  Copied {os.path.getsize('model/best_regime_transformer.pth'):,} bytes")
-    print(f"  Copied {os.path.getsize('model/scaler_X.pkl'):,} bytes")
+    # print("\n=== Step 1: Copy model files to model/ (temporarily) ===")
+    # shutil.copy(args.pth, "model/best_regime_transformer.pth")
+    # shutil.copy(args.pkl, "model/scaler_X.pkl")
+    print(f"  best_regime_transformer.pth: {os.path.getsize('model/best_regime_transformer.pth'):,} bytes")
+    print(f"  scaler_X.pkl: {os.path.getsize('model/scaler_X.pkl'):,} bytes")
 
     print("\n=== Step 2: Temporarily add model files to git (force — bypasses .gitignore) ===")
     run("git add -f model/best_regime_transformer.pth model/scaler_X.pkl")
