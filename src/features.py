@@ -37,44 +37,45 @@ assert len(FEATURE_COLUMNS) == 35
 
 # ── Data fetching ──────────────────────────────────────────────────────────────
 
+# Binance's regular API (api.binance.com) is geo-blocked for US-based IPs,
+# which includes GitHub Actions runners (hosted on Azure US regions).
+# data-api.binance.vision is Binance's official unrestricted market-data
+# mirror — same response format, no geo-restriction, read-only (klines,
+# no trading). Try it first, fall back to the regular endpoint in case
+# your runner happens to land in a non-US region.
+BINANCE_ENDPOINTS = [
+    "https://data-api.binance.vision/api/v3/klines",
+    "https://api.binance.com/api/v3/klines",
+]
+
+
 def fetch_btc_bars(n: int = 8700, symbol: str = "BTCUSDT") -> pd.DataFrame:
     """
     Fetch the last n closed 5-min bars from Binance.
-    Uses spot klines endpoint (no auth required).
+    Tries the unrestricted data-api.binance.vision mirror first (works from
+    any IP including GitHub Actions/US Azure regions), falls back to the
+    regular api.binance.com endpoint if that also fails.
     n=8700 ≈ 30 days, which is enough for all feature warmups.
     """
-    BASE = "https://api.binance.com/api/v3/klines"
     end_ms   = int(time.time() * 1000)
     start_ms = end_ms - n * 5 * 60 * 1000   # n bars × 5 min × 60 s × 1000 ms
 
-    all_rows = []
-    ts = start_ms
-    while ts < end_ms:
-        last_exc = None
-        for attempt in range(4):
-            try:
-                r = requests.get(
-                    BASE,
-                    params={"symbol": symbol, "interval": "5m",
-                            "startTime": ts, "endTime": end_ms, "limit": 1000},
-                    timeout=15,
-                )
-                r.raise_for_status()
-                data = r.json()
-                break
-            except Exception as exc:
-                last_exc = exc
-                time.sleep(2 ** attempt)
-        else:
-            raise RuntimeError(f"Binance klines fetch failed after retries: {last_exc}")
+    all_rows   = []
+    last_error = None
 
-        if not data:
-            break
-        all_rows.extend(data)
-        ts = int(data[-1][0]) + 1
-        if len(data) < 1000:
-            break
-        time.sleep(0.05)
+    for base_url in BINANCE_ENDPOINTS:
+        try:
+            all_rows = _fetch_klines_from(base_url, symbol, start_ms, end_ms)
+            if all_rows:
+                print(f"  Using endpoint: {base_url}")
+                break
+        except Exception as exc:
+            last_error = exc
+            print(f"  Endpoint failed ({base_url}): {exc}")
+            continue
+
+    if not all_rows:
+        raise RuntimeError(f"All Binance endpoints failed. Last error: {last_error}")
 
     COLS = ["ts","open","high","low","close","volume",
             "cts","qv","n_trades","tbv","tbqv","x"]
@@ -91,6 +92,40 @@ def fetch_btc_bars(n: int = 8700, symbol: str = "BTCUSDT") -> pd.DataFrame:
     print(f"  Fetched {len(df):,} closed bars  "
           f"(latest: {df.index[-1].strftime('%Y-%m-%d %H:%M')} UTC)")
     return df[["open","high","low","close","volume","taker_buy_ratio"]]
+
+
+def _fetch_klines_from(base_url: str, symbol: str, start_ms: int, end_ms: int) -> list:
+    """Paginate through klines from a single endpoint. Raises on total failure."""
+    all_rows = []
+    ts = start_ms
+    while ts < end_ms:
+        last_exc = None
+        for attempt in range(4):
+            try:
+                r = requests.get(
+                    base_url,
+                    params={"symbol": symbol, "interval": "5m",
+                            "startTime": ts, "endTime": end_ms, "limit": 1000},
+                    timeout=15,
+                )
+                r.raise_for_status()
+                data = r.json()
+                break
+            except Exception as exc:
+                last_exc = exc
+                time.sleep(2 ** attempt)
+        else:
+            raise RuntimeError(f"fetch failed after retries: {last_exc}")
+
+        if not data:
+            break
+        all_rows.extend(data)
+        ts = int(data[-1][0]) + 1
+        if len(data) < 1000:
+            break
+        time.sleep(0.05)
+
+    return all_rows
 
 
 def fetch_macro(start_dt: str, end_dt: str) -> tuple[pd.Series, pd.Series, pd.Series]:
