@@ -1,0 +1,54 @@
+name: Upload Model Files
+
+# Run this ONCE manually after you have the .pth and .pkl files ready.
+# This workflow reads the files from the repo (if they exist) and re-saves
+# them as a GitHub Actions artifact that the monitor can download at runtime.
+#
+# USAGE:
+#   1. Upload .pth and .pkl once using the helper script below
+#   2. The monitor workflow downloads them fresh each run via the secret URL
+#
+# NOTE: Because model/*.pth and model/*.pkl are in .gitignore, they are
+# NOT stored in git history. Instead, they live as GitHub Actions artifacts
+# (private, tied to your repo) and are downloaded at runtime using a
+# Personal Access Token stored as a secret.
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: "Type 'upload' to confirm model upload"
+        required: true
+
+jobs:
+  upload:
+    runs-on: ubuntu-latest
+    if: github.event.inputs.confirm == 'upload'
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Verify model files exist
+        run: |
+          if [ ! -f "model/best_regime_transformer.pth" ]; then
+            echo "ERROR: model/best_regime_transformer.pth not found"
+            echo "Add it temporarily (outside of git) and re-run"
+            exit 1
+          fi
+          if [ ! -f "model/scaler_X.pkl" ]; then
+            echo "ERROR: model/scaler_X.pkl not found"
+            exit 1
+          fi
+          echo "Model files found:"
+          ls -lh model/*.pth model/*.pkl
+
+      - name: Upload as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: regime-model
+          path: |
+            model/best_regime_transformer.pth
+            model/scaler_X.pkl
+          retention-days: 90    # re-upload before 90 days to keep it alive
+          if-no-files-found: error

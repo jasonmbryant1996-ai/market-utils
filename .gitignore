@@ -1,0 +1,27 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+*.egg-info/
+dist/
+build/
+
+# Model files — DO NOT commit these to git
+# They are large binaries that should be uploaded separately
+# See model/README.md for instructions
+model/*.pth
+model/*.pkl
+
+# Live state — managed by GitHub Actions cache, not git
+state/last_signal.json
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
