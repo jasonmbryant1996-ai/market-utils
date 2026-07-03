@@ -12,7 +12,6 @@ import time
 import numpy as np
 import pandas as pd
 import requests
-import yfinance as yf
 
 
 # ── Constants ──────────────────────────────────────────────────────────────────
@@ -134,49 +133,108 @@ def fetch_macro(start_dt: str, end_dt: str) -> tuple[pd.Series, pd.Series, pd.Se
     All are shifted 1 day (causal: yesterday's return is today's feature)
     and forward-filled over weekends/holidays.
 
+    NOTE: yfinance is unreliable from cloud/CI environments (Yahoo blocks
+    or rate-limits datacenter IPs, returning empty responses). We use
+    Stooq (unauthenticated CSV, no cookie/crumb requirement) for SPX/DXY
+    instead, and fetch ETH/BTC directly from Binance's ETHBTC pair rather
+    than reconstructing it from two separate USD-denominated Yahoo tickers.
+
     Returns three date-indexed Series (index = date objects).
     """
-    def _safe_download(ticker, **kw):
-        """Download with yfinance, return None on failure."""
-        try:
-            df = yf.download(ticker, progress=False, auto_adjust=True, **kw)
-            if df.empty:
-                return None
-            return df
-        except Exception:
-            return None
+    full_idx = pd.date_range(start=start_dt, end=end_dt, freq="D")
 
-    def _to_daily_map(df_raw) -> pd.Series:
-        if df_raw is None:
-            return pd.Series(dtype=float)
-        close = df_raw["Close"].squeeze()
-        lr    = np.log(close / close.shift(1))
-        # Shift 1 day (causal) then forward-fill gaps
-        full_idx = pd.date_range(start=start_dt, end=end_dt, freq="D")
-        s = lr.shift(1).reindex(full_idx).ffill()
-        s.index = s.index.date
-        return s
-
-    spx     = _safe_download("^GSPC",    start=start_dt, end=end_dt)
-    dxy     = _safe_download("DX-Y.NYB", start=start_dt, end=end_dt)
-    eth_usd = _safe_download("ETH-USD",  start=start_dt, end=end_dt)
-    btc_usd = _safe_download("BTC-USD",  start=start_dt, end=end_dt)
-
-    spx_map = _to_daily_map(spx)
-    dxy_map = _to_daily_map(dxy)
-
-    # ETH/BTC ratio log-return
-    if eth_usd is not None and btc_usd is not None:
-        ratio = eth_usd["Close"].squeeze() / btc_usd["Close"].squeeze()
-        ratio = ratio.reindex(eth_usd.index).ffill()
-        lr    = np.log(ratio / ratio.shift(1))
-        full_idx = pd.date_range(start=start_dt, end=end_dt, freq="D")
-        eth_btc_map = lr.shift(1).reindex(full_idx).ffill()
-        eth_btc_map.index = eth_btc_map.index.date
-    else:
-        eth_btc_map = pd.Series(dtype=float)
+    spx_map = _fetch_stooq_daily_map("^spx", full_idx)
+    dxy_map = _fetch_stooq_daily_map("^dxy", full_idx)
+    eth_btc_map = _fetch_ethbtc_daily_map(full_idx)
 
     return spx_map, dxy_map, eth_btc_map
+
+
+_STOOQ_SESSION = requests.Session()
+_STOOQ_SESSION.headers.update({
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36"
+    )
+})
+
+
+def _fetch_stooq_daily_map(symbol: str, full_idx: pd.DatetimeIndex) -> pd.Series:
+    """
+    Fetch daily closes from Stooq (free, unauthenticated CSV, works reliably
+    from cloud/CI IPs unlike Yahoo). Returns a causal (shift-1, ffilled)
+    date-indexed log-return Series. On any failure, returns an empty Series
+    so the caller can gracefully fall back to zeros.
+    """
+    url = f"https://stooq.com/q/d/l/?s={symbol}&i=d"
+    try:
+        r = _STOOQ_SESSION.get(url, timeout=15)
+        r.raise_for_status()
+        from io import StringIO
+        df = pd.read_csv(StringIO(r.text))
+        if df.empty or "Close" not in df.columns:
+            print(f"  Stooq returned no data for {symbol}")
+            return pd.Series(dtype=float)
+
+        df["Date"] = pd.to_datetime(df["Date"])
+        df = df.set_index("Date").sort_index()
+        close = df["Close"]
+        lr = np.log(close / close.shift(1))
+
+        s = lr.shift(1).reindex(full_idx).ffill()
+        s.index = s.index.date
+        print(f"  Stooq {symbol}: {len(df)} daily bars fetched")
+        return s
+    except Exception as exc:
+        print(f"  Stooq fetch failed for {symbol}: {exc}")
+        return pd.Series(dtype=float)
+
+
+def _fetch_ethbtc_daily_map(full_idx: pd.DatetimeIndex) -> pd.Series:
+    """
+    Fetch ETHBTC daily closes directly from Binance (the pair already
+    represents the ETH/BTC ratio natively — no reconstruction needed).
+    Uses the same unrestricted endpoints as fetch_btc_bars.
+    Returns a causal (shift-1, ffilled) date-indexed log-return Series.
+    """
+    n_days_needed = len(full_idx) + 5
+    end_ms   = int(time.time() * 1000)
+    start_ms = end_ms - n_days_needed * 24 * 60 * 60 * 1000
+
+    for base_url in BINANCE_ENDPOINTS:
+        try:
+            r = requests.get(
+                base_url,
+                params={"symbol": "ETHBTC", "interval": "1d",
+                        "startTime": start_ms, "endTime": end_ms, "limit": 1000},
+                timeout=15,
+            )
+            r.raise_for_status()
+            data = r.json()
+            if not data:
+                continue
+
+            df = pd.DataFrame(data, columns=[
+                "ts","open","high","low","close","volume",
+                "cts","qv","n_trades","tbv","tbqv","x"
+            ])
+            df["close"] = df["close"].astype(float)
+            df.index = pd.to_datetime(df["ts"].astype(int), unit="ms", utc=True).date
+
+            close = pd.Series(df["close"].values, index=pd.to_datetime(df.index))
+            close = close.sort_index()
+            lr = np.log(close / close.shift(1))
+
+            s = lr.shift(1).reindex(full_idx).ffill()
+            s.index = s.index.date
+            print(f"  Binance ETHBTC: {len(df)} daily bars fetched (via {base_url})")
+            return s
+        except Exception as exc:
+            print(f"  ETHBTC fetch failed ({base_url}): {exc}")
+            continue
+
+    print("  ETHBTC fetch failed on all endpoints")
+    return pd.Series(dtype=float)
 
 
 # ── Indicator helpers ──────────────────────────────────────────────────────────
