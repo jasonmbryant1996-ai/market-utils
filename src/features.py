@@ -159,35 +159,45 @@ _STOOQ_SESSION.headers.update({
 })
 
 
-def _fetch_stooq_daily_map(symbol: str, full_idx: pd.DatetimeIndex) -> pd.Series:
+def _fetch_stooq_daily_map(symbols: list, full_idx: pd.DatetimeIndex) -> pd.Series:
     """
     Fetch daily closes from Stooq (free, unauthenticated CSV, works reliably
-    from cloud/CI IPs unlike Yahoo). Returns a causal (shift-1, ffilled)
-    date-indexed log-return Series. On any failure, returns an empty Series
-    so the caller can gracefully fall back to zeros.
+    from cloud/CI IPs unlike Yahoo). Tries each symbol in `symbols` in order
+    until one returns usable data. Returns a causal (shift-1, ffilled)
+    date-indexed log-return Series. On total failure, returns an empty
+    Series so the caller can gracefully fall back to zeros.
     """
-    url = f"https://stooq.com/q/d/l/?s={symbol}&i=d"
-    try:
-        r = _STOOQ_SESSION.get(url, timeout=15)
-        r.raise_for_status()
-        from io import StringIO
-        df = pd.read_csv(StringIO(r.text))
-        if df.empty or "Close" not in df.columns:
-            print(f"  Stooq returned no data for {symbol}")
-            return pd.Series(dtype=float)
+    from io import StringIO
 
-        df["Date"] = pd.to_datetime(df["Date"])
-        df = df.set_index("Date").sort_index()
-        close = df["Close"]
-        lr = np.log(close / close.shift(1))
+    for symbol in symbols:
+        url = f"https://stooq.com/q/d/l/?s={symbol}&i=d"
+        try:
+            r = _STOOQ_SESSION.get(url, timeout=15)
+            r.raise_for_status()
 
-        s = lr.shift(1).reindex(full_idx).ffill()
-        s.index = s.index.date
-        print(f"  Stooq {symbol}: {len(df)} daily bars fetched")
-        return s
-    except Exception as exc:
-        print(f"  Stooq fetch failed for {symbol}: {exc}")
-        return pd.Series(dtype=float)
+            preview = r.text[:80].replace("\n", " ")
+            df = pd.read_csv(StringIO(r.text))
+
+            if df.empty or "Close" not in df.columns:
+                print(f"  Stooq {symbol}: no usable data "
+                      f"(response preview: {preview!r})")
+                continue
+
+            df["Date"] = pd.to_datetime(df["Date"])
+            df = df.set_index("Date").sort_index()
+            close = df["Close"]
+            lr = np.log(close / close.shift(1))
+
+            s = lr.shift(1).reindex(full_idx).ffill()
+            s.index = s.index.date
+            print(f"  Stooq {symbol}: {len(df)} daily bars fetched")
+            return s
+        except Exception as exc:
+            print(f"  Stooq {symbol} failed: {exc}")
+            continue
+
+    print(f"  All Stooq symbols failed: {symbols}")
+    return pd.Series(dtype=float)
 
 
 def _fetch_ethbtc_daily_map(full_idx: pd.DatetimeIndex) -> pd.Series:
@@ -219,10 +229,19 @@ def _fetch_ethbtc_daily_map(full_idx: pd.DatetimeIndex) -> pd.Series:
                 "cts","qv","n_trades","tbv","tbqv","x"
             ])
             df["close"] = df["close"].astype(float)
-            df.index = pd.to_datetime(df["ts"].astype(int), unit="ms", utc=True).date
 
-            close = pd.Series(df["close"].values, index=pd.to_datetime(df.index))
-            close = close.sort_index()
+            # pd.to_datetime on a Series column returns a Series of
+            # Timestamps — assigning it directly to df.index auto-converts
+            # to a proper (tz-aware) DatetimeIndex. Do NOT call .date here
+            # (Series has no .date attribute, only .dt.date).
+            df.index = pd.to_datetime(df["ts"].astype(int), unit="ms", utc=True)
+
+            # Normalize to tz-naive, date-only index so it aligns cleanly
+            # with full_idx (which is tz-naive from pd.date_range).
+            df.index = pd.DatetimeIndex(df.index.date)
+
+            close = pd.Series(df["close"].values, index=df.index).sort_index()
+            close = close[~close.index.duplicated(keep="last")]
             lr = np.log(close / close.shift(1))
 
             s = lr.shift(1).reindex(full_idx).ffill()
