@@ -50,6 +50,7 @@ def fetch_btc_bars(n: int = 8700, symbol: str = "BTCUSDT") -> pd.DataFrame:
     all_rows = []
     ts = start_ms
     while ts < end_ms:
+        last_exc = None
         for attempt in range(4):
             try:
                 r = requests.get(
@@ -62,9 +63,10 @@ def fetch_btc_bars(n: int = 8700, symbol: str = "BTCUSDT") -> pd.DataFrame:
                 data = r.json()
                 break
             except Exception as exc:
+                last_exc = exc
                 time.sleep(2 ** attempt)
         else:
-            raise RuntimeError(f"Binance klines fetch failed after retries: {exc}")
+            raise RuntimeError(f"Binance klines fetch failed after retries: {last_exc}")
 
         if not data:
             break

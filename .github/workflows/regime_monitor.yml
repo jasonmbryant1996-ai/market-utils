@@ -29,18 +29,11 @@ jobs:
 
       - name: Install dependencies
         run: python -m pip install -r requirements.txt --quiet
-      - name: Install PyTorch
-        run: python -m pip install -r requirements-torch.txt --quiet
 
-      # ── Download model files from artifact storage ─────────────────────────
-      # Model files are uploaded once via upload_model.yml and stored as a
-      # GitHub Actions artifact — they never touch git history.
-      # GH_PAT secret = a Personal Access Token with actions:read scope.
       - name: Download model artifact
         env:
           GH_TOKEN: ${{ secrets.GH_PAT }}
         run: |
-          # Find the most recent successful upload_model run
           RUN_ID=$(gh api \
             /repos/${{ github.repository }}/actions/workflows/upload_model.yml/runs \
             --jq '[.workflow_runs[] | select(.conclusion=="success")] | .[0].id')
@@ -53,14 +46,12 @@ jobs:
 
           echo "Found model artifact in run $RUN_ID"
 
-          # Get artifact ID
           ARTIFACT_ID=$(gh api \
             /repos/${{ github.repository }}/actions/runs/$RUN_ID/artifacts \
             --jq '.artifacts[] | select(.name=="regime-model") | .id')
 
           echo "Artifact ID: $ARTIFACT_ID"
 
-          # Download and unzip
           gh api \
             /repos/${{ github.repository }}/actions/artifacts/$ARTIFACT_ID/zip \
             > /tmp/model_artifact.zip
@@ -70,7 +61,6 @@ jobs:
           echo "Model files ready:"
           ls -lh model/*.pth model/*.pkl
 
-      # ── Restore last known signal state ───────────────────────────────────
       - name: Restore signal state
         uses: actions/cache@v4
         with:
@@ -79,14 +69,12 @@ jobs:
           restore-keys: |
             regime-state-v1
 
-      # ── Run the monitor ───────────────────────────────────────────────────
       - name: Run regime monitor
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID:   ${{ secrets.TELEGRAM_CHAT_ID }}
         run: python src/live_monitor.py
 
-      # ── Save updated signal state (always, even on failure) ───────────────
       - name: Save signal state
         if: always()
         uses: actions/cache@v4
