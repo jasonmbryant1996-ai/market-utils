@@ -21,6 +21,7 @@ import math
 import pickle
 import logging
 import requests
+import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -35,7 +36,11 @@ STATE_PATH  = ROOT / "state"  / "last_signal.json"
 
 sys.path.insert(0, str(Path(__file__).parent))
 from model_arch import RegimeTransformer
-from features  import FEATURE_COLUMNS, fetch_btc_bars, fetch_macro, build_features
+from features  import (
+    FEATURE_COLUMNS, fetch_btc_bars, fetch_macro, build_features,
+    fetch_current_price,
+)
+import paper_trader as pt
 
 # ── Config ────────────────────────────────────────────────────────────────────
 LOOKBACK          = 240          # must match training
@@ -100,13 +105,54 @@ def load_state() -> dict:
                 return json.load(f)
         except Exception:
             pass
-    return {"pred": 2, "conf": 0.0, "notified_conf": 0.0, "ts": ""}
+    return {
+        "pred": 2, "conf": 0.0, "notified_conf": 0.0, "ts": "",
+        "equity": pt.PAPER_TRADE_CONFIG["STARTING_EQUITY"],
+        "paper_trade": {"open": False},
+        "trade_log": [],
+    }
 
 
 def save_state(state: dict) -> None:
     STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
     with open(STATE_PATH, "w") as f:
         json.dump(state, f, indent=2)
+
+
+def git_commit_state() -> None:
+    """
+    Commits state/last_signal.json directly to the repo whenever it
+    changed. This makes paper-trade state durable across job restarts
+    or timeouts — the NEXT job's `actions/checkout` step pulls the latest
+    committed state automatically, with no dependency on GitHub Actions'
+    cache subsystem (which only saves once, at job end, and can be lost
+    entirely if a timeout cancels the job mid-loop).
+    """
+    try:
+        subprocess.run(["git", "-C", str(ROOT), "config", "user.email",
+                         "regime-bot@users.noreply.github.com"],
+                        check=True, capture_output=True, text=True)
+        subprocess.run(["git", "-C", str(ROOT), "config", "user.name",
+                         "regime-monitor-bot"],
+                        check=True, capture_output=True, text=True)
+        subprocess.run(["git", "-C", str(ROOT), "add", "state/last_signal.json"],
+                        check=True, capture_output=True, text=True)
+
+        diff = subprocess.run(["git", "-C", str(ROOT), "diff", "--cached", "--quiet"])
+        if diff.returncode == 0:
+            return  # nothing changed since last commit — skip
+
+        subprocess.run(["git", "-C", str(ROOT), "commit", "-m",
+                         "Update paper trade state"],
+                        check=True, capture_output=True, text=True)
+        subprocess.run(["git", "-C", str(ROOT), "push"],
+                        check=True, capture_output=True, text=True)
+        log.info("State committed to git (durable across restarts)")
+    except subprocess.CalledProcessError as exc:
+        log.warning(
+            f"Git commit/push failed (non-fatal — state is still saved "
+            f"locally for this run): {exc.stderr}"
+        )
 
 
 # ── Model inference ───────────────────────────────────────────────────────────
@@ -318,44 +364,84 @@ def main():
         log.error(f"Inference failed: {exc}")
         sys.exit(1)
 
-    bar_time  = df_features.index[-1].strftime("%Y-%m-%d %H:%M")
+    import pandas as pd
+    bar_open_time  = df_features.index[-1]
+    bar_close_time = bar_open_time + pd.Timedelta(minutes=5)   # bar covers [open, open+5min)
+    bar_time  = bar_close_time.strftime("%Y-%m-%d %H:%M")      # display CLOSE time, not open
     btc_price = float(df_raw["close"].iloc[-1])
+
+    now_utc = datetime.now(timezone.utc)
+    data_lag_min = (now_utc - bar_close_time.to_pydatetime()).total_seconds() / 60
 
     log.info(f"Prediction : {REGIME_EMOJIS[pred]} {REGIME_NAMES[pred]}")
     log.info(f"Confidence : {conf:.1%}")
     log.info(f"Probs      : Bull={probs[0]:.1%}  Bear={probs[1]:.1%}  Neutral={probs[2]:.1%}")
     log.info(f"BTC price  : ${btc_price:,.0f}")
 
-    # Always print a one-liner for GitHub Actions log readability
+    # ── Current live price (for trade management, NOT model input) ────────────
+    # The model correctly uses only closed 5-min bars (causal, no lookahead).
+    # But checking stop/target against a closed bar can be up to ~10 min stale.
+    # Trade management uses the instantaneous ticker price instead.
+    try:
+        live_price = fetch_current_price()
+    except Exception as exc:
+        log.warning(f"Live price fetch failed ({exc}) — falling back to last closed bar")
+        live_price = btc_price
+
+    ema_value = pt.compute_ema(df_raw, pt.PAPER_TRADE_CONFIG["EMA_PERIOD"])
+
     print(
         f"REGIME | {REGIME_NAMES[pred]} {conf:.1%} | "
         f"Bull={probs[0]:.1%} Bear={probs[1]:.1%} Neutral={probs[2]:.1%} | "
-        f"BTC=${btc_price:,.0f} | {bar_time} UTC"
+        f"BTC=${btc_price:,.0f} (bar) / ${live_price:,.0f} (live) | {bar_time} UTC"
     )
 
-    # ── Notification decision ─────────────────────────────────────────────────
-    last_state = load_state()
-    send, reason = should_notify(pred, conf, last_state)
+    # ── Paper trade lifecycle ──────────────────────────────────────────────────
+    last_state  = load_state()
+    equity      = last_state.get("equity", pt.PAPER_TRADE_CONFIG["STARTING_EQUITY"])
+    trade       = last_state.get("paper_trade", {"open": False})
+    trade_log   = last_state.get("trade_log", [])
+    config      = pt.PAPER_TRADE_CONFIG
 
-    if send:
-        msg = build_message(pred, conf, probs, reason, bar_time, btc_price)
-        log.info(f"Sending Telegram notification: {reason}")
-        send_telegram(msg)
-        notified_conf = conf if pred in (0, 1) else 0.0
-    else:
-        log.info(f"No notification needed ({reason})")
-        notified_conf = last_state.get("notified_conf", 0.0)
+    if config["ENABLED"]:
+        if trade.get("open"):
+            trade, closed, reason, net_pnl = pt.manage_trade(
+                trade, live_price, ema_value, pred, conf, config
+            )
+            if closed:
+                equity += net_pnl
+                trade_log.append(dict(trade))
+                log.info(f"Paper trade CLOSED ({reason})  net_pnl=${net_pnl:+.2f}  equity=${equity:.2f}")
+                send_telegram(pt.format_close_message(trade, equity))
+            else:
+                log.info(
+                    f"Paper trade OPEN  dir={trade['direction']}  "
+                    f"stop=${trade['current_stop']:,.2f}  "
+                    f"target=${trade['current_target']:,.2f}  "
+                    f"trail_active={trade['trail_active']}"
+                )
+        else:
+            desired_dir = pt.get_desired_direction(pred, conf, config)
+            if desired_dir is not None:
+                trade = pt.open_trade(desired_dir, live_price, equity, config)
+                log.info(f"Paper trade OPENED  dir={desired_dir}  entry=${live_price:,.2f}")
+                send_telegram(pt.format_open_message(trade, config, equity))
 
-    # ── Persist state ─────────────────────────────────────────────────────────
+    # ── Persist state (regime + paper trade) ──────────────────────────────────
     save_state({
         "pred"         : pred,
         "conf"         : conf,
-        "notified_conf": notified_conf,
+        "notified_conf": last_state.get("notified_conf", 0.0),
         "ts"           : bar_time,
         "btc_price"    : btc_price,
+        "live_price"   : live_price,
         "probs"        : probs,
+        "equity"       : equity,
+        "paper_trade"  : trade,
+        "trade_log"    : trade_log,
     })
 
+    git_commit_state()
     log.info("Run complete")
 
 

@@ -2,8 +2,14 @@ name: BTC Regime Monitor
 
 on:
   schedule:
-    - cron: "0 */5 * * *"   # every 5 hours as restart safety-net
+    # Fires every 5 hours as a restart safety-net. GitHub's scheduler is
+    # unreliable at 5-min cadence, but hourly-or-slower triggers land
+    # reliably. Each run loops internally every 5 min for ~4h45m.
+    - cron: "0 */5 * * *"
   workflow_dispatch: {}
+
+permissions:
+  contents: write   # required so the job can commit paper-trade state back to the repo
 
 concurrency:
   group: regime-monitor
@@ -12,11 +18,18 @@ concurrency:
 jobs:
   monitor:
     runs-on: ubuntu-latest
-    timeout-minutes: 350      # hard cap on GitHub-hosted runners is 360
+    timeout-minutes: 350      # ~5h50m — leaves buffer under the 6h gap.
+                              # If exceeded, GitHub cancels (not "fails") the
+                              # job. Trade state up to the last committed
+                              # iteration is preserved via git (see below) —
+                              # this is NOT dependent on this step finishing.
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        # Default token + persist-credentials:true (default) lets the loop
+        # below `git push` state commits back to this same repo, since we
+        # granted `contents: write` above.
 
       - name: Set up Python 3.11
         uses: actions/setup-python@v5
@@ -59,24 +72,23 @@ jobs:
           unzip -o /tmp/model_artifact.zip -d model/
           ls -lh model/*.pth model/*.pkl
 
-      - name: Restore signal state
-        uses: actions/cache@v4
-        with:
-          path: state/last_signal.json
-          key: regime-state-v1
-          restore-keys: |
-            regime-state-v1
+      # ── NOTE: no cache-based state restore/save anymore ────────────────────
+      # state/last_signal.json is committed directly to the repo by
+      # live_monitor.py after every iteration (see git_commit_state()).
+      # The checkout step above already pulls the latest committed version —
+      # this is more durable than GitHub Actions cache, which only saves
+      # once at job end and can be lost entirely if a timeout cancels the
+      # job mid-loop.
 
-      # ── Loop: run the monitor every 5 minutes for ~5h45m ──────────────────
-      # State persists as a plain local file across iterations within this
-      # single job — no need to save/restore the cache mid-loop, only once
-      # at the very end (see "Save signal state" step below).
       - name: Run regime monitor loop
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID:   ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
-          END_TIME=$(( $(date +%s) + 345*60 ))   # run for 5h45m, then exit cleanly
+          git config user.email "regime-bot@users.noreply.github.com"
+          git config user.name "regime-monitor-bot"
+
+          END_TIME=$(( $(date +%s) + 280*60 ))   # run for 4h40m, then exit cleanly
           ITERATION=1
           while [ "$(date +%s)" -lt "$END_TIME" ]; do
             echo "=== Iteration $ITERATION  ($(date -u '+%Y-%m-%d %H:%M:%S') UTC) ==="
@@ -85,12 +97,3 @@ jobs:
             sleep 300
           done
           echo "Loop finished after $ITERATION iterations — exiting for scheduled restart"
-
-      - name: Save signal state
-        if: always()
-        uses: actions/cache@v4
-        with:
-          path: state/last_signal.json
-          key: regime-state-v1-${{ github.run_id }}
-          restore-keys: |
-            regime-state-v1

@@ -34,6 +34,28 @@ FEATURE_COLUMNS = [
 assert len(FEATURE_COLUMNS) == 35
 
 
+def fetch_current_price(symbol: str = "BTCUSDT") -> float:
+    """
+    Fetch the instantaneous current price (not a closed 5-min bar).
+    Used for paper-trade stop/target checks, where waiting for candle
+    close would add up to 5-10 minutes of staleness. The model's feature
+    pipeline still correctly uses only closed bars (see fetch_btc_bars) —
+    this is a separate, faster path used only for trade management.
+    """
+    for base_url in [
+        "https://data-api.binance.vision/api/v3/ticker/price",
+        "https://api.binance.com/api/v3/ticker/price",
+    ]:
+        try:
+            r = requests.get(base_url, params={"symbol": symbol}, timeout=10)
+            r.raise_for_status()
+            return float(r.json()["price"])
+        except Exception as exc:
+            print(f"  Current price fetch failed ({base_url}): {exc}")
+            continue
+    raise RuntimeError("Could not fetch current price from any endpoint")
+
+
 # ── Data fetching ──────────────────────────────────────────────────────────────
 
 # Binance's regular API (api.binance.com) is geo-blocked for US-based IPs,
@@ -86,10 +108,24 @@ def fetch_btc_bars(n: int = 8700, symbol: str = "BTCUSDT") -> pd.DataFrame:
         df[c] = df[c].astype(float)
     df["taker_buy_ratio"] = (df["tbv"] / df["volume"].replace(0, 1e-8)).clip(0, 1)
 
-    # Drop the currently open (incomplete) bar — last row
-    df = df.iloc[:-1]
+    # Only drop the last row if it's GENUINELY still forming — verified
+    # against Binance's own authoritative close-time field ("cts"), rather
+    # than assuming the last row is always incomplete. If enough time has
+    # passed since the request was built (model loading, macro fetches,
+    # etc.), the "last" bar may already be closed by the time we get here,
+    # and dropping it would throw away real, valid data for no reason.
+    now_ms = int(time.time() * 1000)
+    last_close_ms = int(df["cts"].iloc[-1])
+    if last_close_ms > now_ms:
+        seconds_remaining = (last_close_ms - now_ms) / 1000
+        print(f"  Dropping last bar — still forming, closes in {seconds_remaining:.0f}s")
+        df = df.iloc[:-1]
+    else:
+        seconds_ago = (now_ms - last_close_ms) / 1000
+        print(f"  Last bar already closed {seconds_ago:.0f}s ago — keeping it")
+
     print(f"  Fetched {len(df):,} closed bars  "
-          f"(latest: {df.index[-1].strftime('%Y-%m-%d %H:%M')} UTC)")
+          f"(latest close: {(df.index[-1] + pd.Timedelta(minutes=5)).strftime('%Y-%m-%d %H:%M')} UTC)")
     return df[["open","high","low","close","volume","taker_buy_ratio"]]
 
 
