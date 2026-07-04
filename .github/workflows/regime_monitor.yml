@@ -2,13 +2,22 @@ name: BTC Regime Monitor
 
 on:
   schedule:
-    - cron: "*/5 * * * *"
+    # Fires every hour as a restart safety-net. GitHub's scheduler is
+    # unreliable at 5-min cadence, but hourly triggers land reliably.
+    # Each run then loops internally every 5 min for ~5h45m, so as long
+    # as ONE hourly trigger fires within any 6-hour window, coverage
+    # stays continuous.
+    - cron: "0 * * * *"
   workflow_dispatch: {}
+
+concurrency:
+  group: regime-monitor
+  cancel-in-progress: false   # queue, don't kill an in-progress loop
 
 jobs:
   monitor:
     runs-on: ubuntu-latest
-    timeout-minutes: 8
+    timeout-minutes: 350      # hard cap on GitHub-hosted runners is 360
 
     steps:
       - name: Checkout
@@ -40,17 +49,12 @@ jobs:
 
           if [ -z "$RUN_ID" ] || [ "$RUN_ID" = "null" ]; then
             echo "ERROR: No successful model upload found."
-            echo "Go to Actions tab and run the 'Upload Model Files' workflow first."
             exit 1
           fi
-
-          echo "Found model artifact in run $RUN_ID"
 
           ARTIFACT_ID=$(gh api \
             /repos/${{ github.repository }}/actions/runs/$RUN_ID/artifacts \
             --jq '.artifacts[] | select(.name=="regime-model") | .id')
-
-          echo "Artifact ID: $ARTIFACT_ID"
 
           gh api \
             /repos/${{ github.repository }}/actions/artifacts/$ARTIFACT_ID/zip \
@@ -58,7 +62,6 @@ jobs:
 
           mkdir -p model
           unzip -o /tmp/model_artifact.zip -d model/
-          echo "Model files ready:"
           ls -lh model/*.pth model/*.pkl
 
       - name: Restore signal state
@@ -69,11 +72,24 @@ jobs:
           restore-keys: |
             regime-state-v1
 
-      - name: Run regime monitor
+      # ── Loop: run the monitor every 5 minutes for ~5h45m ──────────────────
+      # State persists as a plain local file across iterations within this
+      # single job — no need to save/restore the cache mid-loop, only once
+      # at the very end (see "Save signal state" step below).
+      - name: Run regime monitor loop
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID:   ${{ secrets.TELEGRAM_CHAT_ID }}
-        run: python src/live_monitor.py
+        run: |
+          END_TIME=$(( $(date +%s) + 345*60 ))   # run for 5h45m, then exit cleanly
+          ITERATION=1
+          while [ "$(date +%s)" -lt "$END_TIME" ]; do
+            echo "=== Iteration $ITERATION  ($(date -u '+%Y-%m-%d %H:%M:%S') UTC) ==="
+            python src/live_monitor.py || echo "Monitor run failed — continuing loop"
+            ITERATION=$((ITERATION + 1))
+            sleep 300
+          done
+          echo "Loop finished after $ITERATION iterations — exiting for scheduled restart"
 
       - name: Save signal state
         if: always()
