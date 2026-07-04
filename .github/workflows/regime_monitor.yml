@@ -2,12 +2,7 @@ name: BTC Regime Monitor
 
 on:
   schedule:
-    # Fires every hour as a restart safety-net. GitHub's scheduler is
-    # unreliable at 5-min cadence, but hourly triggers land reliably.
-    # Each run then loops internally every 5 min for ~5h45m, so as long
-    # as ONE hourly trigger fires within any 6-hour window, coverage
-    # stays continuous.
-    - cron: "0 * * * *"
+    - cron: "0 */5 * * *"   # every 5 hours as restart safety-net
   workflow_dispatch: {}
 
 concurrency:
