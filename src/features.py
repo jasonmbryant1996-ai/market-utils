@@ -133,58 +133,45 @@ def fetch_macro(start_dt: str, end_dt: str) -> tuple[pd.Series, pd.Series, pd.Se
     All are shifted 1 day (causal: yesterday's return is today's feature)
     and forward-filled over weekends/holidays.
 
-    NOTE: yfinance is unreliable from cloud/CI environments (Yahoo blocks
-    or rate-limits datacenter IPs, returning empty responses). We use
-    Stooq (unauthenticated CSV, no cookie/crumb requirement) for SPX/DXY
-    instead, and fetch ETH/BTC directly from Binance's ETHBTC pair rather
-    than reconstructing it from two separate USD-denominated Yahoo tickers.
+    SPX/DXY come from Stooq via pandas_datareader (handles Stooq's actual
+    URL requirements — date range params, etc. — correctly; raw URL
+    scraping was unreliable). ETH/BTC ratio comes directly from Binance's
+    native ETHBTC pair rather than reconstructing from two USD tickers.
 
     Returns three date-indexed Series (index = date objects).
     """
     full_idx = pd.date_range(start=start_dt, end=end_dt, freq="D")
 
-    spx_map = _fetch_stooq_daily_map("^spx", full_idx)
-    dxy_map = _fetch_stooq_daily_map("^dxy", full_idx)
+    spx_map     = _fetch_stooq_daily_map(["^spx"], full_idx)
+    dxy_map     = _fetch_stooq_daily_map(["dx.f", "^dxy"], full_idx)
     eth_btc_map = _fetch_ethbtc_daily_map(full_idx)
 
     return spx_map, dxy_map, eth_btc_map
 
 
-_STOOQ_SESSION = requests.Session()
-_STOOQ_SESSION.headers.update({
-    "User-Agent": (
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36"
-    )
-})
-
-
 def _fetch_stooq_daily_map(symbols: list, full_idx: pd.DatetimeIndex) -> pd.Series:
     """
-    Fetch daily closes from Stooq (free, unauthenticated CSV, works reliably
-    from cloud/CI IPs unlike Yahoo). Tries each symbol in `symbols` in order
-    until one returns usable data. Returns a causal (shift-1, ffilled)
-    date-indexed log-return Series. On total failure, returns an empty
-    Series so the caller can gracefully fall back to zeros.
+    Fetch daily closes from Stooq via pandas_datareader (handles Stooq's
+    actual API requirements correctly — raw URL scraping without proper
+    date-range params returns an HTML interstitial page instead of CSV).
+    Tries each symbol in `symbols` in order until one works.
+    Returns a causal (shift-1, ffilled) date-indexed log-return Series.
+    On total failure, returns an empty Series so the caller falls back
+    to zeros gracefully.
     """
-    from io import StringIO
+    import pandas_datareader.data as web
+
+    start = full_idx.min()
+    end   = full_idx.max()
 
     for symbol in symbols:
-        url = f"https://stooq.com/q/d/l/?s={symbol}&i=d"
         try:
-            r = _STOOQ_SESSION.get(url, timeout=15)
-            r.raise_for_status()
-
-            preview = r.text[:80].replace("\n", " ")
-            df = pd.read_csv(StringIO(r.text))
-
-            if df.empty or "Close" not in df.columns:
-                print(f"  Stooq {symbol}: no usable data "
-                      f"(response preview: {preview!r})")
+            df = web.DataReader(symbol, "stooq", start=start, end=end)
+            if df.empty:
+                print(f"  Stooq {symbol}: empty result")
                 continue
 
-            df["Date"] = pd.to_datetime(df["Date"])
-            df = df.set_index("Date").sort_index()
+            df = df.sort_index()
             close = df["Close"]
             lr = np.log(close / close.shift(1))
 
