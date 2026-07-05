@@ -4,7 +4,7 @@ on:
   schedule:
     # Fires every 5 hours as a restart safety-net. GitHub's scheduler is
     # unreliable at 5-min cadence, but hourly-or-slower triggers land
-    # reliably. Each run loops internally every 5 min for ~4h45m.
+    # reliably. Each run loops internally every 5 min for ~5h40m.
     - cron: "0 */5 * * *"
   workflow_dispatch: {}
 
@@ -18,18 +18,11 @@ concurrency:
 jobs:
   monitor:
     runs-on: ubuntu-latest
-    timeout-minutes: 350      # ~5h50m — leaves buffer under the 6h gap.
-                              # If exceeded, GitHub cancels (not "fails") the
-                              # job. Trade state up to the last committed
-                              # iteration is preserved via git (see below) —
-                              # this is NOT dependent on this step finishing.
+    timeout-minutes: 350      # hard cap on GitHub-hosted runners is 360
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        # Default token + persist-credentials:true (default) lets the loop
-        # below `git push` state commits back to this same repo, since we
-        # granted `contents: write` above.
 
       - name: Set up Python 3.11
         uses: actions/setup-python@v5
@@ -72,14 +65,19 @@ jobs:
           unzip -o /tmp/model_artifact.zip -d model/
           ls -lh model/*.pth model/*.pkl
 
-      # ── NOTE: no cache-based state restore/save anymore ────────────────────
-      # state/last_signal.json is committed directly to the repo by
-      # live_monitor.py after every iteration (see git_commit_state()).
-      # The checkout step above already pulls the latest committed version —
-      # this is more durable than GitHub Actions cache, which only saves
-      # once at job end and can be lost entirely if a timeout cancels the
-      # job mid-loop.
+      # ── Job-start notification ───────────────────────────────────────────────
+      - name: Notify job start
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID:   ${{ secrets.TELEGRAM_CHAT_ID }}
+          GITHUB_RUN_ID:      ${{ github.run_id }}
+          GITHUB_RUN_NUMBER:  ${{ github.run_number }}
+        run: python src/notify_job.py start
 
+      # ── Main loop: check every 5 minutes for ~5h40m ─────────────────────────
+      # state/last_signal.json is committed directly to the repo after every
+      # iteration by live_monitor.py — durable across restarts, no cache
+      # subsystem involved.
       - name: Run regime monitor loop
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
@@ -88,12 +86,27 @@ jobs:
           git config user.email "regime-bot@users.noreply.github.com"
           git config user.name "regime-monitor-bot"
 
-          END_TIME=$(( $(date +%s) + 340*60 ))   # run for 4h40m, then exit cleanly
+          JOB_START_TS=$(date +%s)
+          echo "JOB_START_EPOCH=$JOB_START_TS" >> "$GITHUB_ENV"
+
+          END_TIME=$(( JOB_START_TS + 340*60 ))   # run ~5h40m, buffer under 350min timeout
           ITERATION=1
           while [ "$(date +%s)" -lt "$END_TIME" ]; do
             echo "=== Iteration $ITERATION  ($(date -u '+%Y-%m-%d %H:%M:%S') UTC) ==="
             python src/live_monitor.py || echo "Monitor run failed — continuing loop"
+            echo "ITERATIONS=$ITERATION" >> "$GITHUB_ENV"
             ITERATION=$((ITERATION + 1))
             sleep 300
           done
+          echo "ITERATIONS=$ITERATION" >> "$GITHUB_ENV"
           echo "Loop finished after $ITERATION iterations — exiting for scheduled restart"
+
+      # ── Job-end notification (fires even if the loop step failed/was cut short) ─
+      - name: Notify job end
+        if: always()
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID:   ${{ secrets.TELEGRAM_CHAT_ID }}
+          GITHUB_RUN_ID:      ${{ github.run_id }}
+          GITHUB_RUN_NUMBER:  ${{ github.run_number }}
+        run: python src/notify_job.py end
