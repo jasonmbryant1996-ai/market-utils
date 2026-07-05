@@ -2,14 +2,14 @@ name: BTC Regime Monitor
 
 on:
   schedule:
-    # Fires every 5 hours as a restart safety-net. GitHub's scheduler is
-    # unreliable at 5-min cadence, but hourly-or-slower triggers land
-    # reliably. Each run loops internally every 5 min for ~5h40m.
-    - cron: "0 */5 * * *"
+    # Safety net only — every 6 hours in case the self-chain trigger below
+    # ever fails to fire. The REAL continuity mechanism is the "Trigger
+    # next run" step at the end of this job, not this cron schedule.
+    - cron: "0 */6 * * *"
   workflow_dispatch: {}
 
 permissions:
-  contents: write   # required so the job can commit paper-trade state back to the repo
+  contents: write   # commit paper-trade state back to the repo
 
 concurrency:
   group: regime-monitor
@@ -18,7 +18,7 @@ concurrency:
 jobs:
   monitor:
     runs-on: ubuntu-latest
-    timeout-minutes: 350      # hard cap on GitHub-hosted runners is 360
+    timeout-minutes: 350      # hard platform cap on GitHub-hosted runners is 360
 
     steps:
       - name: Checkout
@@ -65,7 +65,6 @@ jobs:
           unzip -o /tmp/model_artifact.zip -d model/
           ls -lh model/*.pth model/*.pkl
 
-      # ── Job-start notification ───────────────────────────────────────────────
       - name: Notify job start
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
@@ -74,10 +73,6 @@ jobs:
           GITHUB_RUN_NUMBER:  ${{ github.run_number }}
         run: python src/notify_job.py start
 
-      # ── Main loop: check every 5 minutes for ~5h40m ─────────────────────────
-      # state/last_signal.json is committed directly to the repo after every
-      # iteration by live_monitor.py — durable across restarts, no cache
-      # subsystem involved.
       - name: Run regime monitor loop
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
@@ -89,7 +84,7 @@ jobs:
           JOB_START_TS=$(date +%s)
           echo "JOB_START_EPOCH=$JOB_START_TS" >> "$GITHUB_ENV"
 
-          END_TIME=$(( JOB_START_TS + 340*60 ))   # run ~5h40m, buffer under 350min timeout
+          END_TIME=$(( JOB_START_TS + 335*60 ))   # ~5h35m, buffer under 350min timeout
           ITERATION=1
           while [ "$(date +%s)" -lt "$END_TIME" ]; do
             echo "=== Iteration $ITERATION  ($(date -u '+%Y-%m-%d %H:%M:%S') UTC) ==="
@@ -99,9 +94,20 @@ jobs:
             sleep 300
           done
           echo "ITERATIONS=$ITERATION" >> "$GITHUB_ENV"
-          echo "Loop finished after $ITERATION iterations — exiting for scheduled restart"
+          echo "Loop finished after $ITERATION iterations"
 
-      # ── Job-end notification (fires even if the loop step failed/was cut short) ─
+      # ── Self-chain: immediately trigger the next run ────────────────────────
+      # This is what actually achieves near-continuous coverage — not the
+      # cron schedule above, which is only a fallback. Runs even if the loop
+      # step failed, so a bug in the monitor never permanently stops the chain.
+      - name: Trigger next run
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+        run: |
+          gh workflow run regime_monitor.yml --repo ${{ github.repository }} --ref main
+          echo "Next run triggered — should start within ~1 minute"
+
       - name: Notify job end
         if: always()
         env:
