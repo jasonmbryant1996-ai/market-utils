@@ -88,7 +88,7 @@ jobs:
           git config user.email "regime-bot@users.noreply.github.com"
           git config user.name "regime-monitor-bot"
 
-          END_TIME=$(( $(date +%s) + 280*60 ))   # run for 4h40m, then exit cleanly
+          END_TIME=$(( $(date +%s) + 340*60 ))   # run for 4h40m, then exit cleanly
           ITERATION=1
           while [ "$(date +%s)" -lt "$END_TIME" ]; do
             echo "=== Iteration $ITERATION  ($(date -u '+%Y-%m-%d %H:%M:%S') UTC) ==="
