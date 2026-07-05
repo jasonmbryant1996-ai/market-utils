@@ -14,8 +14,9 @@ build/
 model/*.pth
 model/*.pkl
 
-# Live state — managed by GitHub Actions cache, not git
-state/last_signal.json
+# NOTE: state/last_signal.json is intentionally NOT ignored — it is
+# committed directly to the repo by live_monitor.py (git_commit_state())
+# so paper-trade state survives job restarts/timeouts. See README.md.
 
 # OS
 .DS_Store
@@ -25,5 +26,3 @@ Thumbs.db
 .vscode/
 .idea/
 *.swp
-
-README.md
