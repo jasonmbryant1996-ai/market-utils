@@ -1,14 +1,14 @@
 {
   "pred": 1,
-  "conf": 0.4678281545639038,
+  "conf": 0.42519745230674744,
   "notified_conf": 0.0,
-  "ts": "2026-07-08 11:20",
-  "btc_price": 62166.01,
-  "live_price": 62086.01,
+  "ts": "2026-07-08 11:25",
+  "btc_price": 62086.01,
+  "live_price": 62123.99,
   "probs": [
-    0.2280743569135666,
-    0.4678281545639038,
-    0.3040975034236908
+    0.28621774911880493,
+    0.42519745230674744,
+    0.28858479857444763
   ],
   "equity": 100.0,
   "paper_trade": {
@@ -25,7 +25,7 @@
     "position_size": 100.0,
     "peak_favorable_price": 62086.01,
     "trail_active": false,
-    "consecutive_same_signal": 1
+    "consecutive_same_signal": 0
   },
   "trade_log": []
 }
