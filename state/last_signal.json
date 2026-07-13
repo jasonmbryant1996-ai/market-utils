@@ -1,18 +1,18 @@
 {
   "pred": 1,
-  "conf": 0.4461157023906708,
+  "conf": 0.4379640817642212,
   "notified_conf": 0.0,
-  "ts": "2026-07-13 20:15",
-  "btc_price": 62221.98,
-  "live_price": 62131.84,
+  "ts": "2026-07-13 20:20",
+  "btc_price": 62110.0,
+  "live_price": 62173.3,
   "probs": [
-    0.25217288732528687,
-    0.4461157023906708,
-    0.30171146988868713
+    0.28051671385765076,
+    0.4379640817642212,
+    0.2815192937850952
   ],
-  "equity": 99.54378087407189,
+  "equity": 99.51738878900356,
   "paper_trade": {
-    "open": true,
+    "open": false,
     "direction": "short",
     "entry_price": 62219.0,
     "entry_time": "2026-07-13T20:12:53.736720+00:00",
@@ -25,7 +25,11 @@
     "position_size": 99.54378087407189,
     "peak_favorable_price": 62131.84,
     "trail_active": false,
-    "consecutive_same_signal": 0
+    "consecutive_same_signal": 0,
+    "exit_price": 62173.3,
+    "exit_time": "2026-07-13T20:23:31.332753+00:00",
+    "close_reason": "ema_exit",
+    "net_pnl": -0.026392085068324952
   },
   "trade_log": [
     {
@@ -67,6 +71,26 @@
       "exit_time": "2026-07-13T14:33:32.851647+00:00",
       "close_reason": "ema_exit",
       "net_pnl": -0.22098421551915837
+    },
+    {
+      "open": false,
+      "direction": "short",
+      "entry_price": 62219.0,
+      "entry_time": "2026-07-13T20:12:53.736720+00:00",
+      "initial_stop": 62841.19,
+      "current_stop": 62841.19,
+      "initial_target": 60663.525,
+      "current_target": 60663.525,
+      "risk_amount": 0.9954378087407189,
+      "stop_pct": 0.01,
+      "position_size": 99.54378087407189,
+      "peak_favorable_price": 62131.84,
+      "trail_active": false,
+      "consecutive_same_signal": 0,
+      "exit_price": 62173.3,
+      "exit_time": "2026-07-13T20:23:31.332753+00:00",
+      "close_reason": "ema_exit",
+      "net_pnl": -0.026392085068324952
     }
   ]
 }
