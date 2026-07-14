@@ -6,12 +6,22 @@ Fetches the last N 5-min bars from Binance, computes all 35 features,
 and returns a scaled numpy array ready for model input.
 
 All computations are CAUSAL — no future data leaks into the features.
+
+Logging note: this module uses the standard `logging` module instead of
+bare print()s, and collapses the old Stooq 404/HTML-dump spam into a single
+line. Reducing console noise is good hygiene, but note this does NOT make
+the pipeline private — on a public GitHub repo, Actions logs (including
+this module's output) are publicly viewable regardless of verbosity. See
+PRIVACY_AND_OBSCURITY_NOTES.md for what actually hides this.
 """
 
 import time
+import logging
 import numpy as np
 import pandas as pd
 import requests
+
+log = logging.getLogger(__name__)
 
 
 # ── Constants ──────────────────────────────────────────────────────────────────
@@ -51,19 +61,13 @@ def fetch_current_price(symbol: str = "BTCUSDT") -> float:
             r.raise_for_status()
             return float(r.json()["price"])
         except Exception as exc:
-            print(f"  Current price fetch failed ({base_url}): {exc}")
+            log.debug(f"Current price fetch failed ({base_url}): {exc}")
             continue
     raise RuntimeError("Could not fetch current price from any endpoint")
 
 
 # ── Data fetching ──────────────────────────────────────────────────────────────
 
-# Binance's regular API (api.binance.com) is geo-blocked for US-based IPs,
-# which includes GitHub Actions runners (hosted on Azure US regions).
-# data-api.binance.vision is Binance's official unrestricted market-data
-# mirror — same response format, no geo-restriction, read-only (klines,
-# no trading). Try it first, fall back to the regular endpoint in case
-# your runner happens to land in a non-US region.
 BINANCE_ENDPOINTS = [
     "https://data-api.binance.vision/api/v3/klines",
     "https://api.binance.com/api/v3/klines",
@@ -79,7 +83,7 @@ def fetch_btc_bars(n: int = 8700, symbol: str = "BTCUSDT") -> pd.DataFrame:
     n=8700 ≈ 30 days, which is enough for all feature warmups.
     """
     end_ms   = int(time.time() * 1000)
-    start_ms = end_ms - n * 5 * 60 * 1000   # n bars × 5 min × 60 s × 1000 ms
+    start_ms = end_ms - n * 5 * 60 * 1000
 
     all_rows   = []
     last_error = None
@@ -88,11 +92,11 @@ def fetch_btc_bars(n: int = 8700, symbol: str = "BTCUSDT") -> pd.DataFrame:
         try:
             all_rows = _fetch_klines_from(base_url, symbol, start_ms, end_ms)
             if all_rows:
-                print(f"  Using endpoint: {base_url}")
+                log.debug(f"Using klines endpoint: {base_url}")
                 break
         except Exception as exc:
             last_error = exc
-            print(f"  Endpoint failed ({base_url}): {exc}")
+            log.debug(f"Klines endpoint failed ({base_url}): {exc}")
             continue
 
     if not all_rows:
@@ -108,24 +112,16 @@ def fetch_btc_bars(n: int = 8700, symbol: str = "BTCUSDT") -> pd.DataFrame:
         df[c] = df[c].astype(float)
     df["taker_buy_ratio"] = (df["tbv"] / df["volume"].replace(0, 1e-8)).clip(0, 1)
 
-    # Only drop the last row if it's GENUINELY still forming — verified
-    # against Binance's own authoritative close-time field ("cts"), rather
-    # than assuming the last row is always incomplete. If enough time has
-    # passed since the request was built (model loading, macro fetches,
-    # etc.), the "last" bar may already be closed by the time we get here,
-    # and dropping it would throw away real, valid data for no reason.
     now_ms = int(time.time() * 1000)
     last_close_ms = int(df["cts"].iloc[-1])
     if last_close_ms > now_ms:
-        seconds_remaining = (last_close_ms - now_ms) / 1000
-        print(f"  Dropping last bar — still forming, closes in {seconds_remaining:.0f}s")
         df = df.iloc[:-1]
-    else:
-        seconds_ago = (now_ms - last_close_ms) / 1000
-        print(f"  Last bar already closed {seconds_ago:.0f}s ago — keeping it")
+    # (no per-run print — the final summary line below is enough)
 
-    print(f"  Fetched {len(df):,} closed bars  "
-          f"(latest close: {(df.index[-1] + pd.Timedelta(minutes=5)).strftime('%Y-%m-%d %H:%M')} UTC)")
+    log.info(
+        f"Fetched {len(df):,} closed bars "
+        f"(latest close: {(df.index[-1] + pd.Timedelta(minutes=5)).strftime('%Y-%m-%d %H:%M')} UTC)"
+    )
     return df[["open","high","low","close","volume","taker_buy_ratio"]]
 
 
@@ -166,34 +162,31 @@ def _fetch_klines_from(base_url: str, symbol: str, start_ms: int, end_ms: int) -
 def fetch_macro(start_dt: str, end_dt: str) -> tuple[pd.Series, pd.Series, pd.Series]:
     """
     Download SPX, DXY, and ETH/BTC daily log-returns.
-    All are shifted 1 day (causal: yesterday's return is today's feature)
-    and forward-filled over weekends/holidays.
+    All are shifted 1 day (causal) and forward-filled over weekends/holidays.
 
-    SPX/DXY come from Stooq via pandas_datareader (handles Stooq's actual
-    URL requirements — date range params, etc. — correctly; raw URL
-    scraping was unreliable). ETH/BTC ratio comes directly from Binance's
-    native ETHBTC pair rather than reconstructing from two USD tickers.
-
-    Returns three date-indexed Series (index = date objects).
+    NOTE: Stooq has been returning 404/HTML-interstitial responses for
+    ^spx / dx.f / ^dxy for a while now (see zeroed-SPX/DXY diagnostic in
+    the training notebook — win rate holds up fine with these zeroed).
+    Rather than dumping the full HTML error body every run, failures here
+    are logged once at WARNING level and the pipeline falls back to zeros,
+    matching exactly what the training-time diagnostic already validated.
     """
     full_idx = pd.date_range(start=start_dt, end=end_dt, freq="D")
 
-    spx_map     = _fetch_stooq_daily_map(["^spx"], full_idx)
-    dxy_map     = _fetch_stooq_daily_map(["dx.f", "^dxy"], full_idx)
+    spx_map     = _fetch_stooq_daily_map(["^spx"], full_idx, label="SPX")
+    dxy_map     = _fetch_stooq_daily_map(["dx.f", "^dxy"], full_idx, label="DXY")
     eth_btc_map = _fetch_ethbtc_daily_map(full_idx)
 
     return spx_map, dxy_map, eth_btc_map
 
 
-def _fetch_stooq_daily_map(symbols: list, full_idx: pd.DatetimeIndex) -> pd.Series:
+def _fetch_stooq_daily_map(symbols: list, full_idx: pd.DatetimeIndex, label: str = "") -> pd.Series:
     """
-    Fetch daily closes from Stooq via pandas_datareader (handles Stooq's
-    actual API requirements correctly — raw URL scraping without proper
-    date-range params returns an HTML interstitial page instead of CSV).
-    Tries each symbol in `symbols` in order until one works.
-    Returns a causal (shift-1, ffilled) date-indexed log-return Series.
-    On total failure, returns an empty Series so the caller falls back
-    to zeros gracefully.
+    Fetch daily closes from Stooq via pandas_datareader. Tries each symbol
+    in `symbols` in order until one works. Returns a causal (shift-1,
+    ffilled) date-indexed log-return Series. On total failure, returns an
+    empty Series so the caller falls back to zeros gracefully (validated
+    safe — see fetch_macro docstring).
     """
     import pandas_datareader.data as web
 
@@ -204,7 +197,6 @@ def _fetch_stooq_daily_map(symbols: list, full_idx: pd.DatetimeIndex) -> pd.Seri
         try:
             df = web.DataReader(symbol, "stooq", start=start, end=end)
             if df.empty:
-                print(f"  Stooq {symbol}: empty result")
                 continue
 
             df = df.sort_index()
@@ -213,13 +205,12 @@ def _fetch_stooq_daily_map(symbols: list, full_idx: pd.DatetimeIndex) -> pd.Seri
 
             s = lr.shift(1).reindex(full_idx).ffill()
             s.index = s.index.date
-            print(f"  Stooq {symbol}: {len(df)} daily bars fetched")
+            log.debug(f"Stooq {symbol}: {len(df)} daily bars fetched")
             return s
-        except Exception as exc:
-            print(f"  Stooq {symbol} failed: {exc}")
+        except Exception:
             continue
 
-    print(f"  All Stooq symbols failed: {symbols}")
+    log.warning(f"{label or 'Macro'} unavailable from Stooq — using zeros for this run")
     return pd.Series(dtype=float)
 
 
@@ -227,7 +218,6 @@ def _fetch_ethbtc_daily_map(full_idx: pd.DatetimeIndex) -> pd.Series:
     """
     Fetch ETHBTC daily closes directly from Binance (the pair already
     represents the ETH/BTC ratio natively — no reconstruction needed).
-    Uses the same unrestricted endpoints as fetch_btc_bars.
     Returns a causal (shift-1, ffilled) date-indexed log-return Series.
     """
     n_days_needed = len(full_idx) + 5
@@ -252,15 +242,7 @@ def _fetch_ethbtc_daily_map(full_idx: pd.DatetimeIndex) -> pd.Series:
                 "cts","qv","n_trades","tbv","tbqv","x"
             ])
             df["close"] = df["close"].astype(float)
-
-            # pd.to_datetime on a Series column returns a Series of
-            # Timestamps — assigning it directly to df.index auto-converts
-            # to a proper (tz-aware) DatetimeIndex. Do NOT call .date here
-            # (Series has no .date attribute, only .dt.date).
             df.index = pd.to_datetime(df["ts"].astype(int), unit="ms", utc=True)
-
-            # Normalize to tz-naive, date-only index so it aligns cleanly
-            # with full_idx (which is tz-naive from pd.date_range).
             df.index = pd.DatetimeIndex(df.index.date)
 
             close = pd.Series(df["close"].values, index=df.index).sort_index()
@@ -269,13 +251,12 @@ def _fetch_ethbtc_daily_map(full_idx: pd.DatetimeIndex) -> pd.Series:
 
             s = lr.shift(1).reindex(full_idx).ffill()
             s.index = s.index.date
-            print(f"  Binance ETHBTC: {len(df)} daily bars fetched (via {base_url})")
+            log.debug(f"Binance ETHBTC: {len(df)} daily bars fetched")
             return s
-        except Exception as exc:
-            print(f"  ETHBTC fetch failed ({base_url}): {exc}")
+        except Exception:
             continue
 
-    print("  ETHBTC fetch failed on all endpoints")
+    log.warning("ETH/BTC unavailable from Binance — using zeros for this run")
     return pd.Series(dtype=float)
 
 
@@ -291,10 +272,7 @@ def _rolling_rsi(series: pd.Series, window: int) -> pd.Series:
 
 
 def _compute_ifvgs(df_tf: pd.DataFrame) -> pd.DataFrame:
-    """
-    Pure-Python causal IFVG state machine.
-    Returns bull_ifvg_dist and bear_ifvg_dist aligned to df_tf.index.
-    """
+    """Pure-Python causal IFVG state machine. Returns bull/bear dist aligned to df_tf.index."""
     n = len(df_tf)
     H, L, C = df_tf["high"].values, df_tf["low"].values, df_tf["close"].values
     active_bull_fvgs, active_bear_fvgs   = [], []
@@ -304,14 +282,11 @@ def _compute_ifvgs(df_tf: pd.DataFrame) -> pd.DataFrame:
 
     for i in range(2, n):
         c = C[i]
-
-        # Identify new FVGs
         if L[i] > H[i - 2]:
             active_bull_fvgs.append((H[i - 2], L[i]))
         if H[i] < L[i - 2]:
             active_bear_fvgs.append((H[i], L[i - 2]))
 
-        # FVG → IFVG inversions
         for fvg in list(active_bull_fvgs):
             if c < fvg[0]:
                 active_bull_fvgs.remove(fvg)
@@ -321,7 +296,6 @@ def _compute_ifvgs(df_tf: pd.DataFrame) -> pd.DataFrame:
                 active_bear_fvgs.remove(fvg)
                 active_bull_ifvgs.append(fvg)
 
-        # IFVG mitigations
         for ifvg in list(active_bull_ifvgs):
             if c < ifvg[0]:
                 active_bull_ifvgs.remove(ifvg)
@@ -353,17 +327,9 @@ def build_features(
     """
     Takes the raw OHLCV+taker_buy_ratio DataFrame and produces all 35
     FEATURE_COLUMNS. Same logic as Phase 2 in the training notebook.
-
-    Parameters
-    ----------
-    df_raw      : OHLCV + taker_buy_ratio, 5-min UTC DatetimeIndex
-    spx_map     : date → SPX daily log-return (causal, shifted 1 day)
-    dxy_map     : date → DXY daily log-return (causal, shifted 1 day)
-    eth_btc_map : date → ETH/BTC ratio log-return (causal, shifted 1 day)
     """
     df = df_raw.copy()
 
-    # ── 1. OHLCV log-returns ─────────────────────────────────────────────────
     for col, src in [
         ("open_log_return",   "open"),
         ("high_log_return",   "high"),
@@ -375,22 +341,18 @@ def build_features(
         df["volume"].replace(0, 1e-8) / df["volume"].shift(1).replace(0, 1e-8)
     )
 
-    # ── 2. SMA distances ─────────────────────────────────────────────────────
     for win, col in [(10, "SMA_Distance_10"), (30, "SMA_Distance_30"), (60, "SMA_Distance_60")]:
         sma      = df["close"].rolling(win).mean()
         df[col]  = (df["close"] - sma) / sma
 
-    # ── 3. Volatility ────────────────────────────────────────────────────────
     df["volatility_10"] = df["close_log_return"].rolling(10).std()
 
-    # ── 4. Cyclic time ───────────────────────────────────────────────────────
     frac_h = df.index.hour + df.index.minute / 60.0
     df["time_of_day_sin"] = np.sin(2 * np.pi * frac_h / 24.0)
     df["time_of_day_cos"] = np.cos(2 * np.pi * frac_h / 24.0)
     df["day_of_week_sin"] = np.sin(2 * np.pi * df.index.dayofweek / 7.0)
     df["day_of_week_cos"] = np.cos(2 * np.pi * df.index.dayofweek / 7.0)
 
-    # ── 5. Multi-timeframe RSIs ──────────────────────────────────────────────
     df["RSI_5m"] = _rolling_rsi(df["close"], 14)
     df["RSI_1h"] = _rolling_rsi(df["close"], 168)
     df["RSI_4h"] = _rolling_rsi(df["close"], 672)
@@ -400,7 +362,6 @@ def build_features(
     df["RSI_4h_SMA"] = df["RSI_4h"].rolling(672).mean()
     df["RSI_1d_SMA"] = df["RSI_1d"].rolling(4032).mean()
 
-    # ── 6. Multi-timeframe IFVGs ─────────────────────────────────────────────
     _ohlc = {"open": "first", "high": "max", "low": "min", "close": "last"}
 
     i1d = _compute_ifvgs(df.resample("1D").agg(_ohlc).dropna()).shift(1)
@@ -427,7 +388,6 @@ def build_features(
     df["dist_to_5m_bearish_ifvg"]  = i5m["bear_ifvg_dist"]
     df.drop(columns=["_d", "_4h", "_1h", "_15"], inplace=True)
 
-    # ── 7. Macro proxies ─────────────────────────────────────────────────────
     dates = pd.Series(df.index.date, index=df.index)
     df["spx_log_return"]     = dates.map(spx_map).fillna(0.0)
     df["dxy_log_return"]     = dates.map(dxy_map).fillna(0.0)

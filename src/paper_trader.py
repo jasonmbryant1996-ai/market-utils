@@ -10,16 +10,20 @@ multiple 5-minute checks, using:
   - Fixed initial stop-loss and target (R:R based)
   - Optional DYNAMIC TARGET: while the regime model keeps confirming the
     same direction, the target is pushed further away (more room to run)
-  - Optional TRAILING STOP: once price has moved TRAIL_ACTIVATION_RR in
-    your favor, the stop trails TRAIL_DISTANCE_RR behind the best price
-    reached, protecting profit without capping the upside
-  - Optional EMA EXIT: exits early if price crosses back through the EMA,
-    a momentum-loss signal independent of the R-multiple math
+  - Optional TRAILING STOP: activates only once price has moved
+    TRAIL_ACTIVATION_RR (default 1R) in your favor from entry, then trails
+    TRAIL_DISTANCE_RR behind the best price reached
+  - Optional EMA EXIT: exits early on momentum loss, but ONLY once price
+    has already touched the trade's original target at least once — see
+    "target_touched" below. This was previously ungated and caused trades
+    to close on EMA crosses before ever getting anywhere near profit.
   - A hard time-based exit as a safety net
 
-Everything is driven by PAPER_TRADE_CONFIG below — including MODE, which
-lets you switch between a Bear-only model, a Bull-only model, or a
-combined Bull/Bear model later without touching any other code.
+This module is instantiated once PER MODEL (e.g. once for a bear-only
+regime model, once for a bull-only regime model) by passing a distinct
+`config` dict per model — see live_monitor.py's MODEL_REGISTRY. Each
+instance's state (equity, open trade, trade_log) is tracked completely
+independently; nothing here is shared between models.
 """
 
 from datetime import datetime, timezone
@@ -27,7 +31,8 @@ import pandas as pd
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# CONFIG — tune everything here
+# CONFIG TEMPLATE — one of these per model, built in live_monitor.py by merging
+# this base with per-model overrides (MODE, MAX_HOLD_HOURS, thresholds, label).
 # ══════════════════════════════════════════════════════════════════════════════
 PAPER_TRADE_CONFIG = {
     "ENABLED": True,
@@ -53,16 +58,22 @@ PAPER_TRADE_CONFIG = {
                                         # many R further from the CURRENT price
                                         # (never moves the target backwards)
 
-    # ── Trailing stop: activate after price moves in your favor ──────────────
+    # ── Trailing stop: activate after price moves 1R+ in your favor ──────────
     "ENABLE_TRAILING_STOP" : True,
     "TRAIL_ACTIVATION_RR"  : 1.0,   # activate once price has moved this many R
-                                    # in your favor from entry
+                                    # in your favor from entry (unchanged —
+                                    # this gate was already correct)
     "TRAIL_DISTANCE_RR"    : 1.0,   # trail this many R behind the best price
                                     # reached since entry (only ever tightens)
 
-    # ── EMA exit: close early if price crosses back through the EMA ──────────
+    # ── EMA exit: close early on momentum loss, but ONLY after price has ─────
+    # touched the ORIGINAL target at least once (see target_touched below).
     "ENABLE_EMA_EXIT" : True,
     "EMA_PERIOD"      : 21,
+
+    # ── Identification (used in Telegram messages / state) ───────────────────
+    "MODEL_KEY"   : "bear_6h",     # short machine key, e.g. "bear_6h"
+    "MODEL_LABEL" : "🐻 BEAR-6H",  # human label shown in Telegram messages
 }
 
 
@@ -133,6 +144,13 @@ def open_trade(direction: str, price: float, equity: float, config: dict) -> dic
         "peak_favorable_price"  : price,
         "trail_active"          : False,
         "consecutive_same_signal": 1,
+        # NEW: gates the EMA exit — only True once price has touched the
+        # ORIGINAL (initial_target) at least once. Dynamic-target extension
+        # moves current_target further away, so we track this against the
+        # fixed initial_target rather than the ever-moving current_target.
+        "target_touched"        : False,
+        "model_key"             : config.get("MODEL_KEY", ""),
+        "model_label"           : config.get("MODEL_LABEL", ""),
     }
 
 
@@ -149,8 +167,8 @@ def manage_trade(
     config: dict,
 ) -> tuple[dict, bool, str | None, float | None]:
     """
-    Updates the trade in place (trailing stop, dynamic target, signal streak),
-    checks exit conditions, and returns:
+    Updates the trade in place (trailing stop, dynamic target, signal streak,
+    target_touched gate), checks exit conditions, and returns:
         (trade, closed: bool, close_reason: str|None, net_pnl: float|None)
     """
     direction = trade["direction"]
@@ -169,7 +187,18 @@ def manage_trade(
 
     r_multiple = favorable_move_pct / stop_pct
 
+    # ── Target-touched gate: has price EVER reached the ORIGINAL target? ─────
+    # This gates the EMA exit below. We check against initial_target (fixed),
+    # not current_target (which dynamic-target extension keeps pushing out),
+    # so "touched" means "reached what the model was originally aiming for".
+    if not trade.get("target_touched", False):
+        if direction == "short" and price <= trade["initial_target"]:
+            trade["target_touched"] = True
+        elif direction == "long" and price >= trade["initial_target"]:
+            trade["target_touched"] = True
+
     # ── Trailing stop: activate once R-multiple threshold is reached ─────────
+    # (unchanged — this was already correctly gated behind TRAIL_ACTIVATION_RR)
     if config["ENABLE_TRAILING_STOP"] and r_multiple >= config["TRAIL_ACTIVATION_RR"]:
         trade["trail_active"] = True
         trail_distance_pct = stop_pct * config["TRAIL_DISTANCE_RR"]
@@ -197,20 +226,21 @@ def manage_trade(
 
     # ── Check exit conditions (priority: stop -> target -> EMA -> time) ──────
     closed, reason = False, None
+    ema_exit_allowed = config["ENABLE_EMA_EXIT"] and trade.get("target_touched", False)
 
     if direction == "short":
         if price >= trade["current_stop"]:
             closed, reason = True, "stop"
         elif price <= trade["current_target"]:
             closed, reason = True, "target"
-        elif config["ENABLE_EMA_EXIT"] and price >= ema_value:
+        elif ema_exit_allowed and price >= ema_value:
             closed, reason = True, "ema_exit"
     else:
         if price <= trade["current_stop"]:
             closed, reason = True, "stop"
         elif price >= trade["current_target"]:
             closed, reason = True, "target"
-        elif config["ENABLE_EMA_EXIT"] and price <= ema_value:
+        elif ema_exit_allowed and price <= ema_value:
             closed, reason = True, "ema_exit"
 
     if not closed:
@@ -247,14 +277,15 @@ def manage_trade(
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# Formatting helpers for Telegram messages
+# Formatting helpers for Telegram messages — all tagged with model_label
 # ══════════════════════════════════════════════════════════════════════════════
 
 def format_open_message(trade: dict, config: dict, equity: float) -> str:
     d = trade["direction"].upper()
     emoji = "🔴" if trade["direction"] == "short" else "🟢"
+    label = config.get("MODEL_LABEL", "")
     return (
-        f"{emoji} *PAPER TRADE OPENED — {d}*\n\n"
+        f"{emoji} *PAPER TRADE OPENED — {d}*   [{label}]\n\n"
         f"Entry     : `${trade['entry_price']:,.2f}`\n"
         f"Stop      : `${trade['current_stop']:,.2f}`  "
         f"({config['STOP_LOSS_PCT']:.1%})\n"
@@ -269,14 +300,15 @@ def format_open_message(trade: dict, config: dict, equity: float) -> str:
 def format_close_message(trade: dict, equity: float) -> str:
     d = trade["direction"].upper()
     pnl = trade["net_pnl"]
+    label = trade.get("model_label", "")
     emoji = "✅" if pnl > 0 else "❌"
     reason_labels = {
         "stop": "Stop hit", "target": "Target hit",
-        "ema_exit": "EMA exit", "time_exit": "Time exit",
+        "ema_exit": "EMA exit (post-target)", "time_exit": "Time exit",
     }
     reason = reason_labels.get(trade["close_reason"], trade["close_reason"])
     return (
-        f"{emoji} *PAPER TRADE CLOSED — {d}*\n\n"
+        f"{emoji} *PAPER TRADE CLOSED — {d}*   [{label}]\n\n"
         f"Reason    : {reason}\n"
         f"Entry     : `${trade['entry_price']:,.2f}`\n"
         f"Exit      : `${trade['exit_price']:,.2f}`\n"
