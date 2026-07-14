@@ -5,9 +5,9 @@
       "key": "bear_6h",
       "model_label": "\ud83d\udc3b BEAR-6H",
       "pred": 2,
-      "conf": 0.4108157455921173,
+      "conf": 0.42527449131011963,
       "notified_conf": 0.0,
-      "ts": "2026-07-14 22:10",
+      "ts": "2026-07-14 22:15",
       "equity": 99.51738878900356,
       "paper_trade": {
         "open": false,
