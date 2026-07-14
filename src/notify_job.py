@@ -2,10 +2,7 @@
 notify_job.py
 ==============
 Sends a Telegram message when the monitor job starts or ends — separate
-from the per-iteration trade-open/trade-close messages sent by
-live_monitor.py. Gives you visibility into whether the loop is actually
-running, how long it lasted, and what the paper-trading state looked like
-at each boundary.
+from the per-model trade-open/trade-close messages sent by live_monitor.py.
 
 Usage (called from the workflow):
     python src/notify_job.py start
@@ -51,19 +48,19 @@ def load_state() -> dict:
     return {}
 
 
-def fmt_trade_status(state: dict) -> str:
-    trade = state.get("paper_trade", {})
+def fmt_model_status(m: dict) -> str:
+    trade = m.get("paper_trade", {})
+    label = m.get("model_label", m.get("key", "model"))
     if trade.get("open"):
         d = trade["direction"].upper()
         return (
-            f"🔓 *Open {d} trade*\n"
+            f"*{label}* — 🔓 open {d}\n"
             f"  Entry : `${trade['entry_price']:,.2f}`\n"
             f"  Stop  : `${trade['current_stop']:,.2f}`\n"
             f"  Target: `${trade['current_target']:,.2f}`\n"
             f"  Trail : {'ACTIVE' if trade.get('trail_active') else 'not yet'}\n"
-            f"  Confirming bars: {trade.get('consecutive_same_signal', 0)}"
         )
-    return "🔒 No open trade"
+    return f"*{label}* — 🔒 flat  (equity `${m.get('equity', 100.0):,.2f}`)"
 
 
 def main():
@@ -71,30 +68,29 @@ def main():
         print("Usage: python notify_job.py [start|end]")
         sys.exit(1)
 
-    mode        = sys.argv[1]
-    state       = load_state()
-    equity      = state.get("equity", 100.0)
-    trades_ever = len(state.get("trade_log", []))
-    run_id      = os.environ.get("GITHUB_RUN_ID", "?")
-    run_number  = os.environ.get("GITHUB_RUN_NUMBER", "?")
-    now_str     = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+    mode       = sys.argv[1]
+    state      = load_state()
+    models     = state.get("models", {})
+    run_id     = os.environ.get("GITHUB_RUN_ID", "?")
+    run_number = os.environ.get("GITHUB_RUN_NUMBER", "?")
+    now_str    = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+
+    total_trades = sum(len(m.get("trade_log", [])) for m in models.values())
+    status_block = "\n".join(fmt_model_status(m) for m in models.values()) or "No model state yet"
 
     if mode == "start":
         msg = (
             f"🟢 *Monitor job started*\n\n"
             f"Time        : `{now_str} UTC`\n"
             f"Run         : `#{run_number}` (id `{run_id}`)\n"
-            f"Equity      : `${equity:,.2f}`\n"
-            f"Trades ever : `{trades_ever}`\n\n"
-            f"{fmt_trade_status(state)}"
+            f"Trades ever : `{total_trades}` (all models)\n\n"
+            f"{status_block}"
         )
-
-    else:  # end
-        iterations   = os.environ.get("ITERATIONS", "?")
-        start_epoch  = os.environ.get("JOB_START_EPOCH")
+    else:
+        iterations  = os.environ.get("ITERATIONS", "?")
+        start_epoch = os.environ.get("JOB_START_EPOCH")
         if start_epoch:
-            duration_min = (time.time() - float(start_epoch)) / 60
-            duration_str = f"{duration_min:.0f} min"
+            duration_str = f"{(time.time() - float(start_epoch)) / 60:.0f} min"
         else:
             duration_str = "?"
 
@@ -104,10 +100,10 @@ def main():
             f"Run         : `#{run_number}` (id `{run_id}`)\n"
             f"Duration    : `{duration_str}`\n"
             f"Iterations  : `{iterations}`\n"
-            f"Equity      : `${equity:,.2f}`\n"
-            f"Trades ever : `{trades_ever}`\n\n"
-            f"{fmt_trade_status(state)}\n\n"
-            f"_Next scheduled restart in ~5h, or trigger manually._"
+            f"Trades ever : `{total_trades}` (all models)\n\n"
+            f"{status_block}\n\n"
+            f"_Next scheduled restart in ~5h, or trigger manually. "
+            f"Send /status any time for an on-demand check._"
         )
 
     send_telegram(msg)
