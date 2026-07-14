@@ -1,19 +1,15 @@
 """
 upload_model.py
 ================
-Run this ONCE locally before your first deployment.
+Run this ONCE per model, locally, before deploying that model.
 
-It adds the model files temporarily to git, triggers the upload_model
-workflow, then removes them again. This way the files never permanently
-live in git history, but they are stored safely as a GitHub Actions
-artifact (private, accessible only to your repo's workflows).
-
-USAGE (run on your local machine, not Kaggle):
+USAGE:
   python src/upload_model.py \
-    --pth /path/to/best_regime_transformer.pth \
-    --pkl /path/to/scaler_X.pkl \
-    --repo YOUR_USERNAME/btc-regime-monitor \
-    --token ghp_yourPersonalAccessToken
+    --pth /path/to/model.pth \
+    --pkl /path/to/scale.pkl \
+    --model-name name \
+    --repo USERNAME/repo \
+    --token ghp_PersonalAccessToken
 
 REQUIREMENTS:
   pip install requests
@@ -39,30 +35,26 @@ def run(cmd: str, check: bool = True) -> str:
     return result.stdout.strip()
 
 
-def trigger_workflow(repo: str, token: str) -> int:
-    """Trigger the upload_model workflow and return the new run ID."""
+def trigger_workflow(repo: str, token: str, model_name: str) -> int:
     headers = {
         "Authorization": f"Bearer {token}",
         "Accept": "application/vnd.github+json",
     }
 
-    # Get current run count before triggering
     r = requests.get(
         f"https://api.github.com/repos/{repo}/actions/workflows/upload_model.yml/runs",
         headers=headers,
     )
     before_count = r.json().get("total_count", 0)
 
-    # Trigger
     requests.post(
         f"https://api.github.com/repos/{repo}/actions/workflows/upload_model.yml/dispatches",
         headers=headers,
-        json={"ref": "main", "inputs": {"confirm": "upload"}},
+        json={"ref": "main", "inputs": {"confirm": "upload", "model_name": model_name}},
     )
     print("  Workflow triggered. Waiting for run to start...")
     time.sleep(5)
 
-    # Poll until a new run appears
     for _ in range(30):
         r = requests.get(
             f"https://api.github.com/repos/{repo}/actions/workflows/upload_model.yml/runs",
@@ -80,13 +72,12 @@ def trigger_workflow(repo: str, token: str) -> int:
 
 
 def wait_for_run(repo: str, token: str, run_id: int) -> bool:
-    """Poll until the run completes. Returns True on success."""
     headers = {
         "Authorization": f"Bearer {token}",
         "Accept": "application/vnd.github+json",
     }
     print(f"  Waiting for run {run_id} to complete...")
-    for _ in range(60):   # max 5 minutes
+    for _ in range(60):
         r = requests.get(
             f"https://api.github.com/repos/{repo}/actions/runs/{run_id}",
             headers=headers,
@@ -104,10 +95,11 @@ def wait_for_run(repo: str, token: str, run_id: int) -> bool:
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--pth",   required=True, help="Path to .pth checkpoint file")
-    parser.add_argument("--pkl",   required=True, help="Path to scaler .pkl file")
-    parser.add_argument("--repo",  required=True, help="GitHub repo: USER/REPONAME")
-    parser.add_argument("--token", required=True, help="GitHub Personal Access Token")
+    parser.add_argument("--pth",        required=True, help="Path to .pth checkpoint file")
+    parser.add_argument("--pkl",        required=True, help="Path to scaler .pkl file")
+    parser.add_argument("--model-name", required=True, help="Model key, e.g. bear_6h or bull_48h")
+    parser.add_argument("--repo",       required=True, help="GitHub repo: USER/REPONAME")
+    parser.add_argument("--token",      required=True, help="GitHub Personal Access Token")
     args = parser.parse_args()
 
     if not os.path.exists(args.pth):
@@ -117,19 +109,24 @@ def main():
         print(f"ERROR: .pkl file not found: {args.pkl}")
         sys.exit(1)
 
-    # print("\n=== Step 1: Copy model files to model/ (temporarily) ===")
-    # shutil.copy(args.pth, "model/best_regime_transformer.pth")
-    # shutil.copy(args.pkl, "model/scaler_X.pkl")
-    print(f"  best_regime_transformer.pth: {os.path.getsize('model/best_regime_transformer.pth'):,} bytes")
-    print(f"  scaler_X.pkl: {os.path.getsize('model/scaler_X.pkl'):,} bytes")
+    model_dir = f"model/{args.model_name}"
+    os.makedirs(model_dir, exist_ok=True)
+    dest_pth = f"{model_dir}/best_regime_transformer.pth"
+    dest_pkl = f"{model_dir}/scaler_X.pkl"
+
+    print(f"\n=== Step 1: Stage files under {model_dir}/ ===")
+    shutil.copy(args.pth, dest_pth)
+    shutil.copy(args.pkl, dest_pkl)
+    print(f"  {dest_pth}: {os.path.getsize(dest_pth):,} bytes")
+    print(f"  {dest_pkl}: {os.path.getsize(dest_pkl):,} bytes")
 
     print("\n=== Step 2: Temporarily add model files to git (force — bypasses .gitignore) ===")
-    run("git add -f model/best_regime_transformer.pth model/scaler_X.pkl")
-    run('git commit -m "temp: add model files for upload"')
-    run(f"git push origin main")
+    run(f"git add -f {dest_pth} {dest_pkl}")
+    run(f'git commit -m "temp: add {args.model_name} model files for upload"')
+    run("git push origin main")
 
-    print("\n=== Step 3: Trigger upload_model workflow ===")
-    run_id = trigger_workflow(args.repo, args.token)
+    print(f"\n=== Step 3: Trigger upload_model workflow (model_name={args.model_name}) ===")
+    run_id = trigger_workflow(args.repo, args.token, args.model_name)
 
     print("\n=== Step 4: Wait for upload to complete ===")
     if run_id > 0:
@@ -140,16 +137,16 @@ def main():
         print("  Skipping wait — check Actions tab manually")
 
     print("\n=== Step 5: Remove model files from git history ===")
-    run("git rm --cached model/best_regime_transformer.pth model/scaler_X.pkl")
-    os.remove("model/best_regime_transformer.pth")
-    os.remove("model/scaler_X.pkl")
-    run('git commit -m "chore: remove model files from git (stored as artifact)"')
+    run(f"git rm --cached {dest_pth} {dest_pkl}")
+    os.remove(dest_pth)
+    os.remove(dest_pkl)
+    run(f'git commit -m "chore: remove {args.model_name} model files from git (stored as artifact)"')
     run("git push origin main")
 
     print("\n✅ Done!")
-    print("   Model files are now stored as a private GitHub Actions artifact.")
+    print(f"   '{args.model_name}' model files are now stored as artifact regime-model-{args.model_name}.")
     print("   They are NOT in git history.")
-    print("   The monitor workflow will download them automatically each run.")
+    print(f"   The monitor workflow will download them automatically each run.")
     print(f"\n   Verify at: https://github.com/{args.repo}/actions")
 
 
