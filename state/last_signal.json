@@ -2,17 +2,12 @@
   "telegram_offset": 0,
   "models": {
     "bear_6h": {
+      "key": "bear_6h",
+      "model_label": "\ud83d\udc3b BEAR-6H",
       "pred": 2,
-      "conf": 0.41735708713531494,
+      "conf": 0.4348840117454529,
       "notified_conf": 0.0,
-      "ts": "2026-07-14 20:05",
-      "btc_price": 64510.0,
-      "live_price": 64473.99,
-      "probs": [
-        0.35055413842201233,
-        0.23208872973918915,
-        0.41735708713531494
-      ],
+      "ts": "2026-07-14 21:15",
       "equity": 99.51738878900356,
       "paper_trade": {
         "open": false,
@@ -95,9 +90,7 @@
           "close_reason": "ema_exit",
           "net_pnl": -0.026392085068324952
         }
-      ],
-      "key": "bear_6h",
-      "model_label": "\ud83d\udc3b BEAR-6H"
+      ]
     },
     "bull_48h": {
       "key": "bull_48h",
