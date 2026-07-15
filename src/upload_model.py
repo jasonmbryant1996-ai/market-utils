@@ -149,14 +149,14 @@ def main():
     print(f"  {dest_pkl}: {os.path.getsize(dest_pkl):,} bytes")
 
     print("\n=== Step 2: Temporarily add model files to git (force — bypasses .gitignore) ===")
-    if has_uncommitted_changes([dest_pth, dest_pkl]):
-        run(["git", "add", "-f", dest_pth, dest_pkl])
-        run(["git", "commit", "-m", f"temp: add {args.model_name} model files for upload"])
-        run(["git", "push", "origin", "main"])
-    else:
+    # if has_uncommitted_changes([dest_pth, dest_pkl]):
+    run(["git", "add", "-f", dest_pth, dest_pkl])
+    run(["git", "commit", "-m", f"temp: add {args.model_name} model files for upload"])
+    run(["git", "push", "origin", "main"])
+    # else:
         # Covers resuming after a prior run already got this far but then
         # crashed later (e.g. a network blip while triggering the workflow).
-        print("  Files already committed & pushed from a previous run — skipping to Step 3.")
+        # print("  Files already committed & pushed from a previous run — skipping to Step 3.")
 
     print(f"\n=== Step 3: Trigger upload_model workflow (model_name={args.model_name}) ===")
     run_id = trigger_workflow(args.repo, args.model_name)
