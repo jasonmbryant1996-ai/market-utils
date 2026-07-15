@@ -1,23 +1,29 @@
 name: Upload Model Files
 
-# Run this ONCE manually after you have the .pth and .pkl files ready.
-# This workflow reads the files from the repo (if they exist) and re-saves
-# them as a GitHub Actions artifact that the monitor can download at runtime.
+# Run this manually once per model, after you have the .pth and .pkl files
+# staged at model/<model_name>/best_regime_transformer.pth and scaler_X.pkl.
+# This workflow re-saves them as a GitHub Actions artifact named
+# "regime-model-<model_name>", which the monitor downloads at runtime.
 #
-# USAGE:
-#   1. Upload .pth and .pkl once using the helper script below
-#   2. The monitor workflow downloads them fresh each run via the secret URL
+# USAGE (run once per model, e.g. once for "bear_6h", once for "bull_48h"):
+#   python src/upload_model.py \
+#     --pth /path/to/best_regime_transformer.pth \
+#     --pkl /path/to/scaler_X.pkl \
+#     --model-name bear_6h \
+#     --repo YOUR_USERNAME/btc-regime-monitor \
+#     --token ghp_yourPersonalAccessToken
 #
-# NOTE: Because model/*.pth and model/*.pkl are in .gitignore, they are
-# NOT stored in git history. Instead, they live as GitHub Actions artifacts
-# (private, tied to your repo) and are downloaded at runtime using a
-# Personal Access Token stored as a secret.
+# NOTE: model/**/*.pth and model/**/*.pkl are in .gitignore — never stored
+# in git history. They live only as GitHub Actions artifacts.
 
 on:
   workflow_dispatch:
     inputs:
       confirm:
         description: "Type 'upload' to confirm model upload"
+        required: true
+      model_name:
+        description: "Model key (must match a MODEL_REGISTRY 'model_dir', e.g. bear_6h or bull_48h)"
         required: true
 
 jobs:
@@ -30,25 +36,28 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Verify model files exist
+        env:
+          MODEL_NAME: ${{ github.event.inputs.model_name }}
         run: |
-          if [ ! -f "model/best_regime_transformer.pth" ]; then
-            echo "ERROR: model/best_regime_transformer.pth not found"
-            echo "Add it temporarily (outside of git) and re-run"
+          PTH="model/${MODEL_NAME}/best_regime_transformer.pth"
+          PKL="model/${MODEL_NAME}/scaler_X.pkl"
+          if [ ! -f "$PTH" ]; then
+            echo "ERROR: $PTH not found. Add it temporarily (outside of git) and re-run"
             exit 1
           fi
-          if [ ! -f "model/scaler_X.pkl" ]; then
-            echo "ERROR: model/scaler_X.pkl not found"
+          if [ ! -f "$PKL" ]; then
+            echo "ERROR: $PKL not found"
             exit 1
           fi
-          echo "Model files found:"
-          ls -lh model/*.pth model/*.pkl
+          echo "Model files found for '$MODEL_NAME':"
+          ls -lh "$PTH" "$PKL"
 
       - name: Upload as artifact
         uses: actions/upload-artifact@v4
         with:
-          name: regime-model
+          name: regime-model-${{ github.event.inputs.model_name }}
           path: |
-            model/best_regime_transformer.pth
-            model/scaler_X.pkl
+            model/${{ github.event.inputs.model_name }}/best_regime_transformer.pth
+            model/${{ github.event.inputs.model_name }}/scaler_X.pkl
           retention-days: 90    # re-upload before 90 days to keep it alive
           if-no-files-found: error
