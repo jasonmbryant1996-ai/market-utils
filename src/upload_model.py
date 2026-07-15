@@ -69,9 +69,25 @@ def run_with_retry(cmd: list, attempts: int = 3, delay: int = 5, **kwargs) -> su
     sys.exit(1)
 
 
-def has_uncommitted_changes(paths: list) -> bool:
-    result = subprocess.run(["git", "status", "--porcelain"] + paths, capture_output=True, text=True)
-    return bool(result.stdout.strip())
+def stage_and_commit(paths: list, message: str) -> bool:
+    """
+    Stages and commits the given paths, returning True if a new commit was
+    actually created. Rather than pre-checking git status (which can
+    misfire across platforms/path-quoting quirks and either force an
+    unnecessary re-commit or wrongly skip a real one), this just attempts
+    the commit and treats git's own "nothing to commit" response as the
+    signal that these exact bytes are already committed — no guessing.
+    """
+    subprocess.run(["git", "add", "-f"] + paths, check=True)
+    result = subprocess.run(["git", "commit", "-m", message], capture_output=True, text=True)
+    if result.returncode == 0:
+        return True
+    combined = (result.stdout + result.stderr).lower()
+    if "nothing to commit" in combined or "nothing added to commit" in combined:
+        print("  Nothing new to commit — these exact files are already committed. Continuing.")
+        return False
+    print(f"FAILED to commit:\n{result.stderr}")
+    sys.exit(1)
 
 
 def trigger_workflow(repo: str, model_name: str) -> int:
@@ -149,14 +165,16 @@ def main():
     print(f"  {dest_pkl}: {os.path.getsize(dest_pkl):,} bytes")
 
     print("\n=== Step 2: Temporarily add model files to git (force — bypasses .gitignore) ===")
-    # if has_uncommitted_changes([dest_pth, dest_pkl]):
-    run(["git", "add", "-f", dest_pth, dest_pkl])
-    run(["git", "commit", "-m", f"temp: add {args.model_name} model files for upload"])
+    committed = stage_and_commit(
+        [dest_pth, dest_pkl],
+        f"temp: add {args.model_name} model files for upload",
+    )
+    # Push regardless of whether a new commit was made — if this is a repeat
+    # run after an earlier crash, there may be a local commit that was never
+    # pushed. `git push` is a safe no-op ("Everything up-to-date") if not.
     run(["git", "push", "origin", "main"])
-    # else:
-        # Covers resuming after a prior run already got this far but then
-        # crashed later (e.g. a network blip while triggering the workflow).
-        # print("  Files already committed & pushed from a previous run — skipping to Step 3.")
+    if not committed:
+        print("  (proceeding to Step 3 with the already-committed files)")
 
     print(f"\n=== Step 3: Trigger upload_model workflow (model_name={args.model_name}) ===")
     run_id = trigger_workflow(args.repo, args.model_name)
