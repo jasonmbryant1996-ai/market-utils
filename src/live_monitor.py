@@ -298,7 +298,7 @@ def run_model(reg: dict, df_features: pd.DataFrame, df_raw: pd.DataFrame,
         log.error(f"[{reg['key']}] inference failed: {exc}")
         return
 
-    log.info(f"[{reg['key']}] {REGIME_EMOJIS[pred]} {REGIME_NAMES[pred]}  conf={conf:.1%}")
+    # log.info(f"[{reg['key']}] {REGIME_EMOJIS[pred]} {REGIME_NAMES[pred]}  conf={conf:.1%}")
 
     do_notify, reason = should_notify(reg, pred, conf, model_state)
     if do_notify:
