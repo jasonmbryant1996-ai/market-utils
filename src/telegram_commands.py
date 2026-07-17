@@ -21,7 +21,7 @@ architecture than "GitHub Actions runs a loop".
 
 Commands recognized
 --------------------
-/status or /predict  → replies with both models' latest pred/conf/equity/
+status or predict  → replies with both models' latest pred/conf/equity/
                         open-trade snapshot (pulled from state, not a
                         fresh inference call — inference already runs
                         every iteration regardless of whether you ask).
@@ -32,7 +32,7 @@ import requests
 
 API_BASE = "https://api.telegram.org/bot{token}/{method}"
 
-KNOWN_COMMANDS = {"/status", "/predict", "/pred"}
+KNOWN_COMMANDS = {"status", "predict", "pred"}
 
 
 def _get(method: str, params: dict) -> dict:
@@ -89,7 +89,7 @@ def format_status_reply(state: dict) -> str:
 
         lines.append(
             f"*{label}*\n"
-            f"  Pred    : {pred_name}  (`{m.get('conf', 0.0):.1%}` confidence)\n"
+            f"  Pred    : {pred_name}  (`{m.get('conf', 0.0):.1%}` confidence), Notify Threshold: {m.get('notified_conf', 'Unknown')} \n"
             f"  Equity  : `${m.get('equity', 100.0):,.2f}`\n"
             f"  Trade   : {trade_str}\n"
             f"  As of   : `{m.get('ts', '?')} UTC`\n"
