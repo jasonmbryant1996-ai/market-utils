@@ -5,7 +5,7 @@ on:
     # Safety net only — every 6 hours in case the self-chain trigger below
     # ever fails to fire. The REAL continuity mechanism is the "Trigger
     # next run" step at the end of this job, not this cron schedule.
-    - cron: "0 */6 * * *"
+    - cron: "0 */1 * * *"
   workflow_dispatch: {}
 
 permissions:
@@ -39,6 +39,24 @@ jobs:
 
       - name: Install dependencies
         run: python -m pip install -r requirements.txt --quiet
+
+      # ── Fetch the sensitive core from a SEPARATE PRIVATE repo at runtime.
+      # None of these three files are ever committed to THIS (public) repo —
+      # they exist only on the ephemeral runner filesystem for the duration
+      # of this job. Requires GH_PAT to have access to regime-core (a classic
+      # PAT with full `repo` scope already covers every repo you own; a
+      # fine-grained PAT needs regime-core added to its repository list).
+      - name: Fetch private core (features / model architecture / registry)
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+        run: |
+          set -e
+          gh repo clone jasonmbryant1996-ai/regime-core /tmp/regime-core -- --depth=1
+          cp /tmp/regime-core/src/features.py        src/features.py
+          cp /tmp/regime-core/src/model_arch.py       src/model_arch.py
+          cp /tmp/regime-core/src/model_registry.py   src/model_registry.py
+          rm -rf /tmp/regime-core
+          echo "Private core fetched (3 files) — not committed to this repo."
 
       # ── Download every model listed in MODEL_REGISTRY (src/live_monitor.py) ──
       # Each was uploaded separately via upload_model.yml with a matching
