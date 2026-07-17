@@ -71,13 +71,13 @@ jobs:
       # repo at all. Classic PAT needs full `repo` + `workflow` scopes;
       # fine-grained PAT needs this repo explicitly selected with
       # Actions: Read-and-write + Contents: Read-and-write.
-      - name: Download model artifacts (bear_6h, bull_48h)
+      - name: Download model artifacts
         env:
           GH_TOKEN: ${{ secrets.GH_PAT }}
         run: |
           set -e
           for MODEL_NAME in bear_6h bull_48h; do
-            echo "── Downloading regime-model-${MODEL_NAME} ──"
+            echo "── Downloading regime-model-${MODEL_NAME//[a-z]/} ──"
 
             ARTIFACT_ID=$(gh api "/repos/${{ github.repository }}/actions/artifacts?per_page=100" \
               --jq "[.artifacts[] | select(.name==\"regime-model-${MODEL_NAME}\" and .expired==false)] | sort_by(.created_at) | last | .id")
@@ -94,7 +94,7 @@ jobs:
 
             mkdir -p "model/${MODEL_NAME}"
             unzip -o -q "/tmp/model_${MODEL_NAME}.zip" -d "model/${MODEL_NAME}/"
-            echo "  ✓ ${MODEL_NAME} ready"
+            echo "  ✓ Model ready"
           done
           echo "All model artifacts downloaded."
 
