@@ -194,7 +194,7 @@ def load_model_and_scaler(model_dir: str) -> tuple:
     with open(pkl, "rb") as f:
         scaler = pickle.load(f)
 
-    log.info(f"[{model_dir}] loaded (epoch {ckpt.get('epoch', 0) + 1}, val_f1={ckpt.get('val_f1', 0):.4f})")
+    # log.info(f"[{model_dir}] loaded (epoch {ckpt.get('epoch', 0) + 1}, val_f1={ckpt.get('val_f1', 0):.4f})")
     return model, scaler
 
 
@@ -330,13 +330,13 @@ def run_model(reg: dict, df_features: pd.DataFrame, df_raw: pd.DataFrame,
             if closed:
                 equity += net_pnl
                 trade_log.append(dict(trade))
-                log.info(f"[{reg['key']}] trade CLOSED ({close_reason})  net_pnl=${net_pnl:+.2f}  equity=${equity:.2f}")
+                # log.info(f"[{reg['key']}] trade CLOSED ({close_reason})  net_pnl=${net_pnl:+.2f}  equity=${equity:.2f}")
                 send_telegram(pt.format_close_message(trade, equity))
         else:
             desired_dir = pt.get_desired_direction(pred, conf, config)
             if desired_dir is not None:
                 trade = pt.open_trade(desired_dir, live_price, equity, config)
-                log.info(f"[{reg['key']}] trade OPENED  dir={desired_dir}  entry=${live_price:,.2f}")
+                # log.info(f"[{reg['key']}] trade OPENED  dir={desired_dir}  entry=${live_price:,.2f}")
                 send_telegram(pt.format_open_message(trade, config, equity))
 
     state["models"][reg["key"]] = {
@@ -355,16 +355,16 @@ def run_model(reg: dict, df_features: pd.DataFrame, df_raw: pd.DataFrame,
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 def main():
-    log.info("BTC Regime Monitor — starting run (%d models)", len(MODEL_REGISTRY))
+    log.info("Regime Monitor — starting run (%d models)", len(MODEL_REGISTRY))
 
-    log.info("Fetching BTC bars from Binance...")
+    # log.info("Fetching bars from Binance...")
     try:
         df_raw = fetch_btc_bars(n=N_BARS)
     except Exception as exc:
         log.error(f"Data fetch failed: {exc}")
         sys.exit(1)
 
-    log.info("Fetching macro proxies (SPX, DXY, ETH/BTC)...")
+    # log.info("Fetching macro proxies (SPX, DXY, ETH/BTC)...")
     start_dt = df_raw.index[0].strftime("%Y-%m-%d")
     end_dt   = (df_raw.index[-1] + pd.Timedelta(days=2)).strftime("%Y-%m-%d")
     try:
@@ -373,7 +373,7 @@ def main():
         log.warning(f"Macro fetch failed ({exc}) — continuing with zeros")
         spx_map = dxy_map = eth_btc_map = pd.Series(dtype=float)
 
-    log.info("Computing shared feature matrix (once for both models)...")
+    # log.info("Computing shared feature matrix (once for both models)...")
     try:
         df_features = build_features(df_raw, spx_map, dxy_map, eth_btc_map)
     except Exception as exc:
