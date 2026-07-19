@@ -1,13 +1,13 @@
 {
-  "telegram_offset": 906631452,
+  "telegram_offset": 906631453,
   "models": {
     "bear_6h": {
       "key": "bear_6h",
       "model_label": "\ud83d\udc3b BEAR-6H",
       "pred": 2,
-      "conf": 0.5293055772781372,
+      "conf": 0.4635522663593292,
       "notified_conf": 0.0,
-      "ts": "2026-07-19 14:45",
+      "ts": "2026-07-19 14:50",
       "equity": 99.51738878900356,
       "paper_trade": {
         "open": false,
@@ -96,9 +96,9 @@
       "key": "bull_48h",
       "model_label": "\ud83d\udc02 BULL-48H",
       "pred": 0,
-      "conf": 0.8481109142303467,
+      "conf": 0.8083370327949524,
       "notified_conf": 0.8550137281417847,
-      "ts": "2026-07-19 14:45",
+      "ts": "2026-07-19 14:50",
       "equity": 100.0,
       "paper_trade": {
         "open": true,
@@ -114,7 +114,7 @@
         "position_size": 100.0,
         "peak_favorable_price": 64929.34,
         "trail_active": false,
-        "consecutive_same_signal": 4,
+        "consecutive_same_signal": 5,
         "target_touched": false,
         "model_key": "bull_48h",
         "model_label": "\ud83d\udc02 BULL-48H"
