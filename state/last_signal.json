@@ -5,9 +5,9 @@
       "key": "bear_6h",
       "model_label": "\ud83d\udc3b BEAR-6H",
       "pred": 2,
-      "conf": 0.4854041039943695,
+      "conf": 0.436223566532135,
       "notified_conf": 0.0,
-      "ts": "2026-07-20 05:05",
+      "ts": "2026-07-20 05:15",
       "equity": 99.51738878900356,
       "paper_trade": {
         "open": false,
@@ -96,12 +96,12 @@
       "key": "bull_48h",
       "model_label": "\ud83d\udc02 BULL-48H",
       "pred": 0,
-      "conf": 0.5084473490715027,
+      "conf": 0.46668317914009094,
       "notified_conf": 0.7891027927398682,
-      "ts": "2026-07-20 05:05",
-      "equity": 100.0,
+      "ts": "2026-07-20 05:15",
+      "equity": 100.02989727825717,
       "paper_trade": {
-        "open": true,
+        "open": false,
         "direction": "long",
         "entry_price": 64317.98,
         "entry_time": "2026-07-18T17:33:19.795590+00:00",
@@ -117,9 +117,37 @@
         "consecutive_same_signal": 0,
         "target_touched": false,
         "model_key": "bull_48h",
-        "model_label": "\ud83d\udc02 BULL-48H"
+        "model_label": "\ud83d\udc02 BULL-48H",
+        "exit_price": 64401.56909999999,
+        "exit_time": "2026-07-20T05:15:24.172622+00:00",
+        "close_reason": "stop",
+        "net_pnl": 0.02989727825716873
       },
-      "trade_log": []
+      "trade_log": [
+        {
+          "open": false,
+          "direction": "long",
+          "entry_price": 64317.98,
+          "entry_time": "2026-07-18T17:33:19.795590+00:00",
+          "initial_stop": 63674.800200000005,
+          "current_stop": 64401.56909999999,
+          "initial_target": 65925.9295,
+          "current_target": 65925.9295,
+          "risk_amount": 1.0,
+          "stop_pct": 0.01,
+          "position_size": 100.0,
+          "peak_favorable_price": 65052.09,
+          "trail_active": true,
+          "consecutive_same_signal": 0,
+          "target_touched": false,
+          "model_key": "bull_48h",
+          "model_label": "\ud83d\udc02 BULL-48H",
+          "exit_price": 64401.56909999999,
+          "exit_time": "2026-07-20T05:15:24.172622+00:00",
+          "close_reason": "stop",
+          "net_pnl": 0.02989727825716873
+        }
+      ]
     }
   }
 }
