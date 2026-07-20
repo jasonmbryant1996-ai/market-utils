@@ -1,13 +1,13 @@
 {
-  "telegram_offset": 906631466,
+  "telegram_offset": 906631467,
   "models": {
     "bear_6h": {
       "key": "bear_6h",
       "model_label": "\ud83d\udc3b BEAR-6H",
-      "pred": 0,
-      "conf": 0.3623936176300049,
+      "pred": 1,
+      "conf": 0.36306479573249817,
       "notified_conf": 0.0,
-      "ts": "2026-07-20 15:35",
+      "ts": "2026-07-20 15:40",
       "equity": 99.51738878900356,
       "paper_trade": {
         "open": false,
@@ -95,10 +95,10 @@
     "bull_48h": {
       "key": "bull_48h",
       "model_label": "\ud83d\udc02 BULL-48H",
-      "pred": 0,
-      "conf": 0.37373048067092896,
+      "pred": 1,
+      "conf": 0.36069485545158386,
       "notified_conf": 0.3848925232887268,
-      "ts": "2026-07-20 15:35",
+      "ts": "2026-07-20 15:40",
       "equity": 100.02989727825717,
       "paper_trade": {
         "open": false,
