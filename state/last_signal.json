@@ -5,9 +5,9 @@
       "key": "bear_6h",
       "model_label": "\ud83d\udc3b BEAR-6H",
       "pred": 1,
-      "conf": 0.4658566415309906,
+      "conf": 0.4479142427444458,
       "notified_conf": 0.46963921189308167,
-      "ts": "2026-07-28 14:00",
+      "ts": "2026-07-28 14:05",
       "equity": 99.51738878900356,
       "paper_trade": {
         "open": true,
@@ -23,7 +23,7 @@
         "position_size": 99.51738878900356,
         "peak_favorable_price": 62988.36,
         "trail_active": false,
-        "consecutive_same_signal": 2,
+        "consecutive_same_signal": 0,
         "target_touched": false,
         "model_key": "bear_6h",
         "model_label": "\ud83d\udc3b BEAR-6H"
@@ -94,10 +94,10 @@
     "bull_48h": {
       "key": "bull_48h",
       "model_label": "\ud83d\udc02 BULL-48H",
-      "pred": 2,
-      "conf": 0.3673604428768158,
+      "pred": 1,
+      "conf": 0.3634417653083801,
       "notified_conf": 0.3693758547306061,
-      "ts": "2026-07-28 14:00",
+      "ts": "2026-07-28 14:05",
       "equity": 100.76753393438511,
       "paper_trade": {
         "open": false,
