@@ -5,9 +5,9 @@
       "key": "bear_6h",
       "model_label": "\ud83d\udc3b BEAR-6H",
       "pred": 2,
-      "conf": 0.5119369626045227,
+      "conf": 0.4781109094619751,
       "notified_conf": 0.35759031772613525,
-      "ts": "2026-07-30 04:10",
+      "ts": "2026-07-30 04:15",
       "equity": 99.5447833419408,
       "paper_trade": {
         "open": false,
@@ -121,10 +121,10 @@
     "bull_48h": {
       "key": "bull_48h",
       "model_label": "\ud83d\udc02 BULL-48H",
-      "pred": 1,
-      "conf": 0.37238842248916626,
+      "pred": 0,
+      "conf": 0.3693108558654785,
       "notified_conf": 0.3693758547306061,
-      "ts": "2026-07-30 04:10",
+      "ts": "2026-07-30 04:15",
       "equity": 100.76753393438511,
       "paper_trade": {
         "open": false,
