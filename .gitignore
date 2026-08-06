@@ -35,3 +35,4 @@ src/features.py
 src/model_arch.py
 src/model_registry.py
 src/live_monitor.py
+src/paper_trader.py
