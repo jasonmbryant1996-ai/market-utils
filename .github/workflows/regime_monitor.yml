@@ -57,8 +57,9 @@ jobs:
           cp /tmp/regime-core/src/model_arch.py       src/model_arch.py
           cp /tmp/regime-core/src/model_registry.py   src/model_registry.py
           cp /tmp/regime-core/src/live_monitor.py     src/live_monitor.py
+          cp /tmp/regime-core/src/paper_trader.py     src/paper_trader.py
           rm -rf /tmp/regime-core
-          echo "Private core fetched (4 files) — not committed to this repo."
+          echo "Private core fetched (5 files) — not committed to this repo."
 
       # ── Download every model listed in MODEL_REGISTRY (src/live_monitor.py) ──
       # Each was uploaded separately via upload_model.yml with a matching
