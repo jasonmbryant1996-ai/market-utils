@@ -1,21 +1,5 @@
 name: Upload Model Files
 
-# Run this manually once per model, after you have the .pth and .pkl files
-# staged at model/<model_name>/best_regime_transformer.pth and scaler_X.pkl.
-# This workflow re-saves them as a GitHub Actions artifact named
-# "regime-model-<model_name>", which the monitor downloads at runtime.
-#
-# USAGE (run once per model, e.g. once for "bear_6h", once for "bull_48h"):
-#   python src/upload_model.py \
-#     --pth /path/to/best_regime_transformer.pth \
-#     --pkl /path/to/scaler_X.pkl \
-#     --model-name bear_6h \
-#     --repo YOUR_USERNAME/btc-regime-monitor \
-#     --token ghp_yourPersonalAccessToken
-#
-# NOTE: model/**/*.pth and model/**/*.pkl are in .gitignore — never stored
-# in git history. They live only as GitHub Actions artifacts.
-
 on:
   workflow_dispatch:
     inputs:

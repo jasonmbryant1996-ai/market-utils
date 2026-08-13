@@ -1,32 +1,3 @@
-"""
-telegram_commands.py
-=====================
-Minimal Telegram "ask on demand" support for the regime monitor.
-
-How it works
-------------
-Telegram's Bot API has no push mechanism usable from a GitHub Actions
-runner (no public HTTPS endpoint to receive webhooks), so this uses
-long-polling instead: each iteration of the monitor loop (every ~5 min,
-matching the existing `sleep 300` in regime_monitor.yml) calls
-`poll_and_reply()` once. It fetches any *new* messages you've sent the
-bot since the last check, and if any of them are a recognized command,
-replies with the most recently computed prediction/state for both models.
-
-This means: send `/status` in Telegram, and you'll get a reply within
-one loop iteration (~5 minutes worst case) — not instantly. If you need
-sub-minute responses you'd need a real webhook receiver (e.g. a small
-always-on server or a serverless function), which is a different
-architecture than "GitHub Actions runs a loop".
-
-Commands recognized
---------------------
-status or predict  → replies with both models' latest pred/conf/equity/
-                        open-trade snapshot (pulled from state, not a
-                        fresh inference call — inference already runs
-                        every iteration regardless of whether you ask).
-"""
-
 import os
 import requests
 
@@ -89,7 +60,7 @@ def format_status_reply(state: dict) -> str:
 
         lines.append(
             f"*{label}*\n"
-            f"  Pred    : {pred_name}  (`{m.get('conf', 0.0):.1%}` confidence), Notify Threshold: {m.get('notified_conf', 'Unknown')} \n"
+            f"  Pred    : {pred_name}  (`{m.get('conf', 0.0):.1%}` confidence), Notify Threshold: {m.get('conf_threshold', 0.0):.0%} \n"
             f"  Equity  : `${m.get('equity', 100.0):,.2f}`\n"
             f"  Trade   : {trade_str}\n"
             f"  As of   : `{m.get('ts', '?')} UTC`\n"

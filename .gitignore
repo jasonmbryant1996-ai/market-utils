@@ -30,9 +30,12 @@ Thumbs.db
 #
 .private
 
+src/upload_model.py
 
 src/features.py
 src/model_arch.py
 src/model_registry.py
 src/live_monitor.py
 src/paper_trader.py
+src/ifvg_state.py
+src/backfill_ifvg_state.py

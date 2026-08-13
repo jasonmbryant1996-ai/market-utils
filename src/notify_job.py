@@ -1,9 +1,4 @@
 """
-notify_job.py
-==============
-Sends a Telegram message when the monitor job starts or ends — separate
-from the per-model trade-open/trade-close messages sent by live_monitor.py.
-
 Usage (called from the workflow):
     python src/notify_job.py start
     python src/notify_job.py end
@@ -49,8 +44,9 @@ def load_state() -> dict:
 
 
 def fmt_model_status(m: dict) -> str:
-    trade = m.get("paper_trade", {})
+    trade = m.get("paper_trade", {}) or {}
     label = m.get("model_label", m.get("key", "model"))
+
     if trade.get("open"):
         d = trade["direction"].upper()
         return (
@@ -60,7 +56,9 @@ def fmt_model_status(m: dict) -> str:
             f"  Target: `${trade['current_target']:,.2f}`\n"
             f"  Trail : {'ACTIVE' if trade.get('trail_active') else 'not yet'}\n"
         )
-    return f"*{label}* — 🔒 flat  (equity `${m.get('equity', 100.0):,.2f}`)"
+
+    backtest_note = "" if m.get("startup_backtest_sent") else "  (startup backtest pending)"
+    return f"*{label}* — 🔒 flat  (equity `${m.get('equity', 100.0):,.2f}`){backtest_note}"
 
 
 def main():
@@ -68,15 +66,15 @@ def main():
         print("Usage: python notify_job.py [start|end]")
         sys.exit(1)
 
-    mode       = sys.argv[1]
-    state      = load_state()
-    models     = state.get("models", {})
-    run_id     = os.environ.get("GITHUB_RUN_ID", "?")
-    run_number = os.environ.get("GITHUB_RUN_NUMBER", "?")
-    now_str    = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+    mode        = sys.argv[1]
+    state       = load_state()
+    models      = state.get("models", {})
+    run_id      = os.environ.get("GITHUB_RUN_ID", "?")
+    run_number  = os.environ.get("GITHUB_RUN_NUMBER", "?")
+    now_str     = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
 
-    total_trades = sum(len(m.get("trade_log", [])) for m in models.values())
-    status_block = "\n".join(fmt_model_status(m) for m in models.values()) or "No model state yet"
+    total_trades  = sum(len(m.get("trade_log", [])) for m in models.values())
+    status_block  = "\n".join(fmt_model_status(m) for m in models.values()) or "No model state yet"
 
     if mode == "start":
         msg = (
@@ -86,11 +84,13 @@ def main():
             f"Trades ever : `{total_trades}` (all models)\n\n"
             f"{status_block}"
         )
-    else:
+
+    else:  # end
         iterations  = os.environ.get("ITERATIONS", "?")
         start_epoch = os.environ.get("JOB_START_EPOCH")
         if start_epoch:
-            duration_str = f"{(time.time() - float(start_epoch)) / 60:.0f} min"
+            duration_min = (time.time() - float(start_epoch)) / 60
+            duration_str = f"{duration_min:.0f} min"
         else:
             duration_str = "?"
 
@@ -102,7 +102,7 @@ def main():
             f"Iterations  : `{iterations}`\n"
             f"Trades ever : `{total_trades}` (all models)\n\n"
             f"{status_block}\n\n"
-            f"_Next scheduled restart in ~5h, or trigger manually. "
+            f"_Next scheduled restart in ~1h (cron fallback), or sooner via self-chain. "
             f"Send /status any time for an on-demand check._"
         )
 
