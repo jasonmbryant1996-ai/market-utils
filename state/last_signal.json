@@ -1,0 +1,39 @@
+{
+  "telegram_offset": 906631536,
+  "models": {
+    "bear_6h": {
+      "key": "bear_6h",
+      "model_label": "\ud83d\udc3b BEAR-6H",
+      "conf_threshold": 0.45,
+      "pred": 2,
+      "conf": 0.5046430826187134,
+      "notified_conf": 0.0,
+      "last_reminder_ts": null,
+      "post_tp_watch": null,
+      "startup_backtest_sent": true,
+      "ts": "2026-08-13 19:00",
+      "equity": 100.0,
+      "paper_trade": {
+        "open": false
+      },
+      "trade_log": []
+    },
+    "bull_48h": {
+      "key": "bull_48h",
+      "model_label": "\ud83d\udc02 BULL-48H",
+      "conf_threshold": 0.85,
+      "pred": 2,
+      "conf": 0.3950827121734619,
+      "notified_conf": 0.0,
+      "last_reminder_ts": null,
+      "post_tp_watch": null,
+      "startup_backtest_sent": false,
+      "ts": "2026-08-13 19:00",
+      "equity": 100.0,
+      "paper_trade": {
+        "open": false
+      },
+      "trade_log": []
+    }
+  }
+}
