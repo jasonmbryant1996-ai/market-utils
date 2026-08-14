@@ -6,12 +6,12 @@
       "model_label": "\ud83d\udc3b BEAR-6H",
       "conf_threshold": 0.45,
       "pred": 2,
-      "conf": 0.6776860952377319,
+      "conf": 0.7091699838638306,
       "notified_conf": 0.0,
       "last_reminder_ts": null,
       "post_tp_watch": null,
       "startup_backtest_sent": true,
-      "ts": "2026-08-14 06:30",
+      "ts": "2026-08-14 06:35",
       "equity": 100.0,
       "paper_trade": {
         "open": false
@@ -23,12 +23,12 @@
       "model_label": "\ud83d\udc02 BULL-48H",
       "conf_threshold": 0.85,
       "pred": 2,
-      "conf": 0.7307154536247253,
+      "conf": 0.8075380921363831,
       "notified_conf": 0.0,
       "last_reminder_ts": null,
       "post_tp_watch": null,
       "startup_backtest_sent": true,
-      "ts": "2026-08-14 06:30",
+      "ts": "2026-08-14 06:35",
       "equity": 100.0,
       "paper_trade": {
         "open": false
