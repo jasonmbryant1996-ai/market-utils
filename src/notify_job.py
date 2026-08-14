@@ -13,7 +13,14 @@ from datetime import datetime, timezone
 
 import requests
 
-STATE_PATH = Path(__file__).parent.parent / "state" / "last_signal.json"
+# State lives in the private regime-core checkout now, not this (public)
+# repo — REGIME_CORE_CHECKOUT is set by the workflow's "Fetch private core"
+# step via $GITHUB_ENV, and persists automatically to this later step too.
+# Falls back to the old location if unset, so this still degrades gracefully
+# (empty state / "No model state yet") rather than crashing if ever run
+# standalone without that env var.
+_STATE_ROOT = Path(os.environ.get("REGIME_CORE_CHECKOUT", Path(__file__).parent.parent))
+STATE_PATH  = _STATE_ROOT / "state" / "last_signal.json"
 
 
 def send_telegram(text: str) -> None:

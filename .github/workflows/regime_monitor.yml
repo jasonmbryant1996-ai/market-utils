@@ -9,7 +9,8 @@ on:
   workflow_dispatch: {}
 
 permissions:
-  contents: write   # commit paper-trade state back to the repo
+  contents: write   # only needed for this repo's own git history now
+                     # (code checkout) — state no longer lives here.
 
 concurrency:
   group: regime-monitor
@@ -45,16 +46,37 @@ jobs:
           GH_TOKEN: ${{ secrets.GH_PAT }}
         run: |
           set -e
-          gh repo clone jasonmbryant1996-ai/regime-core /tmp/regime-core -- --depth=1
-          cp /tmp/regime-core/src/features.py         src/features.py
-          cp /tmp/regime-core/src/model_arch.py       src/model_arch.py
-          cp /tmp/regime-core/src/model_registry.py   src/model_registry.py
-          cp /tmp/regime-core/src/live_monitor.py     src/live_monitor.py
-          cp /tmp/regime-core/src/paper_trader.py     src/paper_trader.py
-          cp /tmp/regime-core/src/ifvg_state.py       src/ifvg_state.py
-          rm -rf /tmp/regime-core
-          mkdir -p state
-          echo "Private core fetched (6 files) — not committed to this repo."
+          REGIME_CORE_DIR="${RUNNER_TEMP}/regime-core"
+          gh repo clone jasonmbryant1996-ai/regime-core "$REGIME_CORE_DIR" -- --depth=1
+
+          cp "$REGIME_CORE_DIR"/src/features.py         src/features.py
+          cp "$REGIME_CORE_DIR"/src/model_arch.py       src/model_arch.py
+          cp "$REGIME_CORE_DIR"/src/model_registry.py   src/model_registry.py
+          cp "$REGIME_CORE_DIR"/src/live_monitor.py     src/live_monitor.py
+          cp "$REGIME_CORE_DIR"/src/paper_trader.py     src/paper_trader.py
+          cp "$REGIME_CORE_DIR"/src/ifvg_state.py       src/ifvg_state.py
+
+          # State (last_signal.json, ifvg_state.json) now lives INSIDE this
+          # regime-core checkout, not in this (public) repo — that's the
+          # whole point. Keep the clone around for the rest of the job
+          # (RUNNER_TEMP survives the job, gets wiped after) instead of
+          # deleting it, so later steps can read/write/commit/push state
+          # there directly.
+          mkdir -p "$REGIME_CORE_DIR/state"
+          git -C "$REGIME_CORE_DIR" config user.email "regime-bot@users.noreply.github.com"
+          git -C "$REGIME_CORE_DIR" config user.name  "regime-monitor-bot"
+
+          # Authenticate the push remote once, here, while GH_TOKEN is in
+          # scope for this step. This persists in the clone's local git
+          # config for the rest of the job, so later steps (which don't
+          # carry GH_PAT in their own env) can still `git push` from it.
+          # GitHub Actions automatically masks the literal secret value in
+          # all logs, including if this URL is ever echoed.
+          git -C "$REGIME_CORE_DIR" remote set-url origin \
+            "https://x-access-token:${GH_TOKEN}@github.com/jasonmbryant1996-ai/regime-core.git"
+
+          echo "REGIME_CORE_CHECKOUT=$REGIME_CORE_DIR" >> "$GITHUB_ENV"
+          echo "Private core fetched (6 files). State checkout kept at $REGIME_CORE_DIR."
 
       - name: Download model artifacts
         env:
@@ -62,8 +84,6 @@ jobs:
         run: |
           set -e
           for MODEL_NAME in bear_6h bull_48h; do
-            # echo "── Downloading regime-model-${MODEL_NAME} ──"
-
             ARTIFACT_ID=$(gh api "/repos/${{ github.repository }}/actions/artifacts?per_page=100" \
               --jq "[.artifacts[] | select(.name==\"regime-model-${MODEL_NAME}\" and .expired==false)] | sort_by(.created_at) | last | .id")
 
@@ -96,9 +116,6 @@ jobs:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID:   ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
-          git config user.email "regime-bot@users.noreply.github.com"
-          git config user.name "regime-monitor-bot"
-
           JOB_START_TS=$(date +%s)
           echo "JOB_START_EPOCH=$JOB_START_TS" >> "$GITHUB_ENV"
 
