@@ -41,6 +41,14 @@ jobs:
       - name: Install dependencies
         run: python -m pip install -r requirements.txt --quiet
 
+      - name: Restore feature cache
+        uses: actions/cache@v4
+        with:
+          path: /tmp/regime_feature_cache.pkl
+          key: feature-cache-${{ github.run_id }}
+          restore-keys: |
+            feature-cache-
+
       - name: Fetch private core
         env:
           GH_TOKEN: ${{ secrets.GH_PAT }}
@@ -55,13 +63,13 @@ jobs:
           cp "$REGIME_CORE_DIR"/src/live_monitor.py     src/live_monitor.py
           cp "$REGIME_CORE_DIR"/src/paper_trader.py     src/paper_trader.py
           cp "$REGIME_CORE_DIR"/src/ifvg_state.py       src/ifvg_state.py
+          cp "$REGIME_CORE_DIR"/src/feature_cache.py    src/feature_cache.py
 
-          # State (last_signal.json, ifvg_state.json) now lives INSIDE this
-          # regime-core checkout, not in this (public) repo — that's the
-          # whole point. Keep the clone around for the rest of the job
-          # (RUNNER_TEMP survives the job, gets wiped after) instead of
-          # deleting it, so later steps can read/write/commit/push state
-          # there directly.
+          # State (last_signal.json) now lives INSIDE this regime-core
+          # checkout, not in this (public) repo
+          # Keep the clone around for the rest of the job (RUNNER_TEMP
+          # survives the job, gets wiped after) instead of deleting it, so
+          # later steps can read/write/commit/push state there directly.
           mkdir -p "$REGIME_CORE_DIR/state"
           git -C "$REGIME_CORE_DIR" config user.email "regime-bot@users.noreply.github.com"
           git -C "$REGIME_CORE_DIR" config user.name  "regime-monitor-bot"
@@ -76,7 +84,7 @@ jobs:
             "https://x-access-token:${GH_TOKEN}@github.com/jasonmbryant1996-ai/regime-core.git"
 
           echo "REGIME_CORE_CHECKOUT=$REGIME_CORE_DIR" >> "$GITHUB_ENV"
-          echo "Private core fetched (6 files). State checkout kept at $REGIME_CORE_DIR."
+          echo "Private core fetched (7 files). State checkout kept at $REGIME_CORE_DIR."
 
       - name: Download model artifacts
         env:
