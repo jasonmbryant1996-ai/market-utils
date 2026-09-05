@@ -12,7 +12,7 @@ build/
 # They are large binaries that should be uploaded separately
 # See model/README.md for instructions
 model/
-model/
+
 
 # NOTE: state/last_signal.json is intentionally NOT ignored — it is
 # committed directly to the repo by live_monitor.py (git_commit_state())

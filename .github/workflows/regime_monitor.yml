@@ -57,13 +57,16 @@ jobs:
           REGIME_CORE_DIR="${RUNNER_TEMP}/regime-core"
           gh repo clone jasonmbryant1996-ai/regime-core "$REGIME_CORE_DIR" -- --depth=1
 
-          cp "$REGIME_CORE_DIR"/src/features.py         src/features.py
-          cp "$REGIME_CORE_DIR"/src/model_arch.py       src/model_arch.py
-          cp "$REGIME_CORE_DIR"/src/model_registry.py   src/model_registry.py
-          cp "$REGIME_CORE_DIR"/src/live_monitor.py     src/live_monitor.py
-          cp "$REGIME_CORE_DIR"/src/paper_trader.py     src/paper_trader.py
-          cp "$REGIME_CORE_DIR"/src/ifvg_state.py       src/ifvg_state.py
-          cp "$REGIME_CORE_DIR"/src/feature_cache.py    src/feature_cache.py
+          cp "$REGIME_CORE_DIR"/src/features.py            src/features.py
+          cp "$REGIME_CORE_DIR"/src/model_arch.py          src/model_arch.py
+          cp "$REGIME_CORE_DIR"/src/model_registry.py      src/model_registry.py
+          cp "$REGIME_CORE_DIR"/src/live_monitor.py        src/live_monitor.py
+          cp "$REGIME_CORE_DIR"/src/paper_trader.py        src/paper_trader.py
+          cp "$REGIME_CORE_DIR"/src/ifvg_state.py          src/ifvg_state.py
+          cp "$REGIME_CORE_DIR"/src/feature_cache.py       src/feature_cache.py
+          cp "$REGIME_CORE_DIR"/src/telegram_commands.py   src/telegram_commands.py
+          cp "$REGIME_CORE_DIR"/src/notify_job.py          src/notify_job.py
+          cp "$REGIME_CORE_DIR"/src/upload_model.py        src/upload_model.py
 
           # State (last_signal.json) now lives INSIDE this regime-core
           # checkout, not in this (public) repo
@@ -84,7 +87,7 @@ jobs:
             "https://x-access-token:${GH_TOKEN}@github.com/jasonmbryant1996-ai/regime-core.git"
 
           echo "REGIME_CORE_CHECKOUT=$REGIME_CORE_DIR" >> "$GITHUB_ENV"
-          echo "Private core fetched (7 files). State checkout kept at $REGIME_CORE_DIR."
+          echo "Private core fetched (10 files). State checkout kept at $REGIME_CORE_DIR."
 
       - name: Download model artifacts
         env:
