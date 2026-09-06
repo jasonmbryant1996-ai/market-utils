@@ -83,7 +83,6 @@ jobs:
           cp "$REGIME_CORE_DIR"/src/feature_cache.py       src/feature_cache.py
           cp "$REGIME_CORE_DIR"/src/telegram_commands.py   src/telegram_commands.py
           cp "$REGIME_CORE_DIR"/src/notify_job.py          src/notify_job.py
-          cp "$REGIME_CORE_DIR"/src/upload_model.py        src/upload_model.py
 
           # State (last_signal.json) now lives INSIDE this regime-core
           # checkout, not in this (public) repo
