@@ -45,15 +45,32 @@ jobs:
         uses: actions/cache@v4
         with:
           path: /tmp/regime_feature_cache.pkl
-          key: feature-cache-${{ github.run_id }}
+          # v2: bumped after fixing the RSI-EMA-truncation and IFVG
+          # premature-bucket-commit bugs in regime-core (Sept 2026). The
+          # old cache's df_feat / ifvg_state_dict were computed with the
+          # buggy logic — IFVG's active-fvg lists especially don't
+          # self-correct on their own, so restoring an old cache under
+          # the OLD key would keep feeding a corrupted state into the
+          # now-fixed code forever. Bumping the key prefix makes every
+          # feature-cache-* entry unreachable, so the next run gets a
+          # guaranteed cache miss and does a full, clean bootstrap
+          # instead. Safe to fold back to "feature-cache-" (drop the
+          # v2) once this has run at least once past the transition.
+          key: feature-cache-v2-${{ github.run_id }}
           restore-keys: |
-            feature-cache-
+            feature-cache-v2-
 
       - name: Fetch private core
         env:
           GH_TOKEN: ${{ secrets.GH_PAT }}
         run: |
           set -e
+          mkdir -p src   # market-utils no longer has ANY files checked in
+                         # under src/ now that features.py/model_arch.py/
+                         # model_registry.py moved to the private repo —
+                         # git doesn't track empty directories, so after
+                         # `actions/checkout@v4` there's no src/ at all for
+                         # `cp` to write into below without this.
           REGIME_CORE_DIR="${RUNNER_TEMP}/regime-core"
           gh repo clone jasonmbryant1996-ai/regime-core "$REGIME_CORE_DIR" -- --depth=1
 
