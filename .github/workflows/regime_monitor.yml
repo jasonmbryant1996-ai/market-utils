@@ -103,7 +103,7 @@ jobs:
             "https://x-access-token:${GH_TOKEN}@github.com/jasonmbryant1996-ai/regime-core.git"
 
           echo "REGIME_CORE_CHECKOUT=$REGIME_CORE_DIR" >> "$GITHUB_ENV"
-          echo "Private core fetched (10 files). State checkout kept at $REGIME_CORE_DIR."
+          echo "Private core fetched (9 files). State checkout kept at $REGIME_CORE_DIR."
 
       - name: Download model artifacts
         env:
