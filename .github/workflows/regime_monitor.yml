@@ -81,9 +81,9 @@ jobs:
           cp "$REGIME_CORE_DIR"/src/paper_trader.py        src/paper_trader.py
           cp "$REGIME_CORE_DIR"/src/ifvg_state.py          src/ifvg_state.py
           cp "$REGIME_CORE_DIR"/src/feature_cache.py       src/feature_cache.py
+          cp "$REGIME_CORE_DIR"/src/feature_health_check.py src/feature_health_check.py
           cp "$REGIME_CORE_DIR"/src/telegram_commands.py   src/telegram_commands.py
           cp "$REGIME_CORE_DIR"/src/notify_job.py          src/notify_job.py
-          cp "$REGIME_CORE_DIR"/src/feature_health_check.py   src/feature_health_check.py
 
           # State (last_signal.json) now lives INSIDE this regime-core
           # checkout, not in this (public) repo
@@ -150,10 +150,22 @@ jobs:
           END_TIME=$(( JOB_START_TS + 335*60 ))   # ~5h35m, buffer under 350min timeout
           ITERATION=1
           while [ "$(date +%s)" -lt "$END_TIME" ]; do
+            TICK_START=$(date +%s)
             python src/live_monitor.py || echo "Monitor run failed — continuing loop"
             echo "ITERATIONS=$ITERATION" >> "$GITHUB_ENV"
             ITERATION=$((ITERATION + 1))
-            sleep 300
+            # Sleep only the REMAINDER of a 300s cycle, not a flat 300s on
+            # top of however long the tick itself took -- matters more once
+            # /recompute_on makes a tick take ~90s instead of ~10-20s, but
+            # keeps the ~5min cadence honest either way. Floor of 10s so a
+            # tick that ever runs long (bad network, retries) never causes
+            # back-to-back runs hammering the API.
+            TICK_ELAPSED=$(( $(date +%s) - TICK_START ))
+            SLEEP_FOR=$(( 300 - TICK_ELAPSED ))
+            if [ "$SLEEP_FOR" -lt 10 ]; then
+              SLEEP_FOR=10
+            fi
+            sleep "$SLEEP_FOR"
           done
           echo "ITERATIONS=$ITERATION" >> "$GITHUB_ENV"
 
