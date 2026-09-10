@@ -60,6 +60,19 @@ jobs:
           restore-keys: |
             feature-cache-v2-
 
+      - name: Restore 105 raw cache
+        uses: actions/cache@v4
+        with:
+          # Completely separate from the v35 feature cache above: raw
+          # OHLCV + funding + fear&greed for the 105-feature pipeline
+          # (bull_105). Never share a key prefix with feature-cache-v2 —
+          # a 105 raw frame restored into the v35 path (or vice versa)
+          # would silently corrupt live features.
+          path: /tmp/regime_raw_cache_105.pkl
+          key: feature-cache-105-v1-${{ github.run_id }}
+          restore-keys: |
+            feature-cache-105-v1-
+
       - name: Fetch private core
         env:
           GH_TOKEN: ${{ secrets.GH_PAT }}
@@ -84,6 +97,10 @@ jobs:
           cp "$REGIME_CORE_DIR"/src/feature_health_check.py src/feature_health_check.py
           cp "$REGIME_CORE_DIR"/src/telegram_commands.py   src/telegram_commands.py
           cp "$REGIME_CORE_DIR"/src/notify_job.py          src/notify_job.py
+          # 105-feature pipeline (bull_105) — separate module, no scaler
+          cp "$REGIME_CORE_DIR"/src/features_105.py        src/features_105.py
+          cp "$REGIME_CORE_DIR"/src/data_105.py            src/data_105.py
+          cp "$REGIME_CORE_DIR"/src/feature_cache_105.py   src/feature_cache_105.py
 
           # State (last_signal.json) now lives INSIDE this regime-core
           # checkout, not in this (public) repo
@@ -104,14 +121,14 @@ jobs:
             "https://x-access-token:${GH_TOKEN}@github.com/jasonmbryant1996-ai/regime-core.git"
 
           echo "REGIME_CORE_CHECKOUT=$REGIME_CORE_DIR" >> "$GITHUB_ENV"
-          echo "Private core fetched (10 files). State checkout kept at $REGIME_CORE_DIR."
+          echo "Private core fetched (13 files). State checkout kept at $REGIME_CORE_DIR."
 
       - name: Download model artifacts
         env:
           GH_TOKEN: ${{ secrets.GH_PAT }}
         run: |
           set -e
-          for MODEL_NAME in bear_6h bull_48h; do
+          for MODEL_NAME in bear_6h bull_48h bull_105; do
             ARTIFACT_ID=$(gh api "/repos/${{ github.repository }}/actions/artifacts?per_page=100" \
               --jq "[.artifacts[] | select(.name==\"regime-model-${MODEL_NAME}\" and .expired==false)] | sort_by(.created_at) | last | .id")
 

@@ -9,6 +9,10 @@ on:
       model_name:
         description: "Model key (must match a MODEL_REGISTRY 'model_dir', e.g. bear_6h or bull_48h)"
         required: true
+      needs_scaler:
+        description: "Does this model use a scaler_X.pkl? (false for scaler-less models, e.g. bull_105)"
+        required: true
+        default: "true"
 
 jobs:
   upload:
@@ -22,6 +26,7 @@ jobs:
       - name: Verify model files exist
         env:
           MODEL_NAME: ${{ github.event.inputs.model_name }}
+          NEEDS_SCALER: ${{ github.event.inputs.needs_scaler }}
         run: |
           PTH="model/${MODEL_NAME}/best_regime_transformer.pth"
           PKL="model/${MODEL_NAME}/scaler_X.pkl"
@@ -29,19 +34,31 @@ jobs:
             echo "ERROR: $PTH not found. Add it temporarily (outside of git) and re-run"
             exit 1
           fi
-          if [ ! -f "$PKL" ]; then
+          if [ "$NEEDS_SCALER" = "true" ] && [ ! -f "$PKL" ]; then
             echo "ERROR: $PKL not found"
             exit 1
           fi
-          echo "Model files found for '$MODEL_NAME':"
-          ls -lh "$PTH" "$PKL"
+          echo "Model files found for '$MODEL_NAME' (needs_scaler=$NEEDS_SCALER):"
+          ls -lh "$PTH"
+          [ "$NEEDS_SCALER" = "true" ] && ls -lh "$PKL" || true
 
-      - name: Upload as artifact
+      - name: Upload as artifact (with scaler)
+        if: github.event.inputs.needs_scaler == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: regime-model-${{ github.event.inputs.model_name }}
           path: |
             model/${{ github.event.inputs.model_name }}/best_regime_transformer.pth
             model/${{ github.event.inputs.model_name }}/scaler_X.pkl
+          retention-days: 90    # re-upload before 90 days to keep it alive
+          if-no-files-found: error
+
+      - name: Upload as artifact (no scaler)
+        if: github.event.inputs.needs_scaler != 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: regime-model-${{ github.event.inputs.model_name }}
+          path: |
+            model/${{ github.event.inputs.model_name }}/best_regime_transformer.pth
           retention-days: 90    # re-upload before 90 days to keep it alive
           if-no-files-found: error
