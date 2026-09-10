@@ -133,10 +133,10 @@ jobs:
               --jq "[.artifacts[] | select(.name==\"regime-model-${MODEL_NAME}\" and .expired==false)] | sort_by(.created_at) | last | .id")
 
             if [ -z "$ARTIFACT_ID" ] || [ "$ARTIFACT_ID" = "null" ]; then
-              echo "ERROR: no non-expired artifact named regime-model-${MODEL_NAME} found."
-              echo "Either upload_model.py hasn't been run for this model yet, or GH_PAT"
-              echo "lacks Actions read access to this (private) repo — check its scope."
-              exit 1
+              echo "WARNING: no non-expired artifact named regime-model-${MODEL_NAME} found."
+              echo "That model will be SKIPPED this run (live_monitor logs the missing files)."
+              echo "Run upload_model.py for it, or re-upload before its 90-day retention expires."
+              continue
             fi
 
             gh api "/repos/${{ github.repository }}/actions/artifacts/$ARTIFACT_ID/zip" \
@@ -146,7 +146,7 @@ jobs:
             unzip -o -q "/tmp/model_${MODEL_NAME}.zip" -d "model/${MODEL_NAME}/"
             echo "  ✓ ${MODEL_NAME} ready"
           done
-          echo "All model artifacts downloaded."
+          echo "Model artifact download finished."
 
       - name: Notify job start
         env:
