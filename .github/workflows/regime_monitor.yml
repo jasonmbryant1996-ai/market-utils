@@ -151,7 +151,7 @@ jobs:
       - name: Notify job start
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_CHAT_ID:   ${{ secrets.TELEGRAM_CHAT_ID }}
+          TELEGRAM_CHAT_ID:   ${{ secrets.TELEGRAM_CHAT_ID_OPS }}
           GITHUB_RUN_ID:      ${{ github.run_id }}
           GITHUB_RUN_NUMBER:  ${{ github.run_number }}
         run: python src/notify_job.py start
@@ -198,7 +198,7 @@ jobs:
         if: always()
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_CHAT_ID:   ${{ secrets.TELEGRAM_CHAT_ID }}
+          TELEGRAM_CHAT_ID:   ${{ secrets.TELEGRAM_CHAT_ID_OPS }}
           GITHUB_RUN_ID:      ${{ github.run_id }}
           GITHUB_RUN_NUMBER:  ${{ github.run_number }}
         run: python src/notify_job.py end
