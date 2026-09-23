@@ -97,12 +97,10 @@ jobs:
           cp "$REGIME_CORE_DIR"/src/feature_health_check.py src/feature_health_check.py
           cp "$REGIME_CORE_DIR"/src/telegram_commands.py   src/telegram_commands.py
           cp "$REGIME_CORE_DIR"/src/notify_job.py          src/notify_job.py
-          # 105-feature pipeline (bull_105) — separate module, no scaler
           cp "$REGIME_CORE_DIR"/src/features_105.py        src/features_105.py
           cp "$REGIME_CORE_DIR"/src/data_105.py            src/data_105.py
           cp "$REGIME_CORE_DIR"/src/feature_cache_105.py   src/feature_cache_105.py
 
-          # State (last_signal.json) now lives INSIDE this regime-core
           # checkout, not in this (public) repo
           # Keep the clone around for the rest of the job (RUNNER_TEMP
           # survives the job, gets wiped after) instead of deleting it, so
